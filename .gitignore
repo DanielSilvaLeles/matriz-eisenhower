@@ -1,0 +1,27 @@
+node_modules
+dist
+dist-ssr
+coverage
+*.local
+.DS_Store
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Editores
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# Nunca versionar configuracao sensivel.
+# A URL e o token do Apps Script sao digitados no aparelho e ficam
+# apenas no localStorage do navegador (ver docs, secao 5.8).
+.env
+.env.*
+!.env.example
+
+# Playwright (fase 1c)
+test-results
+playwright-report

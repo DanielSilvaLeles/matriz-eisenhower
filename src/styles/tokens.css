@@ -1,0 +1,101 @@
+/*
+ * Tokens de design da Matriz de Eisenhower.
+ *
+ * Fonte unica da verdade das cores. O teste src/styles/tokens.contrast.test.ts
+ * le este arquivo e reprova o build se algum par perder o contraste WCAG AA,
+ * entao trocar um valor aqui e seguro: o CI avisa se quebrar acessibilidade.
+ *
+ * Leitura das quatro cores como semaforo (docs secao 3):
+ *   q1 verde  = vai          q2 amarelo = espera a hora
+ *   q3 azul   = passa adiante q4 vermelho = pare
+ *
+ * Tres tokens por quadrante, porque cada um tem uma exigencia diferente:
+ *   --color-qN       grafico (barra do topo, ponto): precisa 3:1
+ *   --color-qN-ink   texto e icone: precisa 4.5:1
+ *   --color-qN-soft  fundo levissimo do cabecalho: e o fundo, nao o primeiro plano
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+
+  /* Neutros - tema claro */
+  --color-canvas: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f1f3f5;
+  --color-surface-sunken: #eef0f3;
+  --color-border: #e2e5e9;
+  --color-border-strong: #cdd2d9;
+  --color-border-control: #838b94;
+  --color-text: #16191d;
+  --color-text-muted: #5c6570;
+  --color-text-subtle: #616a75;
+  --color-focus: #1c64d1;
+
+  /* Aviso (contador a partir de 8, chip "sem data") */
+  --color-warn: #8a5a00;
+  --color-warn-soft: #fdf4e3;
+
+  /* Quadrantes - tema claro */
+  --color-q1: #0f9755;
+  --color-q1-ink: #0a6b3b;
+  --color-q1-soft: #e8f6ee;
+
+  --color-q2: #b87f05;
+  --color-q2-ink: #7d5a06;
+  --color-q2-soft: #fdf4e3;
+
+  --color-q3: #2a7fd4;
+  --color-q3-ink: #15559e;
+  --color-q3-soft: #e8f1fb;
+
+  --color-q4: #d04545;
+  --color-q4-ink: #a32626;
+  --color-q4-soft: #fbeaea;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  --ease-out-soft: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/*
+ * Tema escuro. Sobrescreve as variaveis cruas, nao as utilities: as classes do
+ * Tailwind apontam para var(--color-*), entao a troca de tema e instantanea e
+ * nao duplica CSS. Por isso @theme (e nao @theme inline) acima.
+ */
+.dark {
+  --color-canvas: #0e1013;
+  --color-surface: #161a1f;
+  --color-surface-muted: #1d2228;
+  --color-surface-sunken: #11151a;
+  --color-border: #262c34;
+  --color-border-strong: #343c46;
+  --color-border-control: #656f7b;
+  --color-text: #e8ebee;
+  --color-text-muted: #9aa4af;
+  --color-text-subtle: #8b95a1;
+  --color-focus: #7fb0f5;
+
+  --color-warn: #edb84a;
+  --color-warn-soft: #251f12;
+
+  --color-q1: #34c77f;
+  --color-q1-ink: #5bd99a;
+  --color-q1-soft: #11261b;
+
+  --color-q2: #e8b33c;
+  --color-q2-ink: #f0c35e;
+  --color-q2-soft: #251f12;
+
+  --color-q3: #5aa3e8;
+  --color-q3-ink: #7cb8ef;
+  --color-q3-soft: #121f2e;
+
+  --color-q4: #e26a6a;
+  --color-q4-ink: #ef8a8a;
+  --color-q4-soft: #271819;
+}

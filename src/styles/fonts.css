@@ -1,0 +1,21 @@
+/*
+ * Inter Variable auto-hospedada, subconjunto latino apenas.
+ *
+ * Auto-hospedada e nao via fonts.googleapis.com por dois motivos:
+ * a rede da empresa pode bloquear o dominio, e uma fonte externa quebraria
+ * o app offline (docs secao 8). Sao 47 KB para toda a tipografia.
+ *
+ * O subconjunto latino (U+0000-00FF e companhia) cobre todo o portugues -
+ * a, c, e, o, u acentuados inclusive. Sem italico: o design nao usa.
+ */
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')
+    format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}

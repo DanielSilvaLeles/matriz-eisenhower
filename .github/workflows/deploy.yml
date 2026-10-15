@@ -1,0 +1,76 @@
+name: Verificar e publicar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Permite republicar sem precisar de um commit novo.
+  workflow_dispatch:
+
+# Um deploy por vez. Em caso de fila, vale o commit mais recente - mas sem
+# cancelar o que ja esta publicando, para nao deixar o Pages pela metade.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    name: Lint, tipos, testes e build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+
+      # npm ci instala exatamente o que esta no package-lock.json.
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Verificacao de tipos
+        run: npm run typecheck
+
+      # Cobre as regras de dominio e o contraste WCAG AA dos tokens.
+      - name: Testes
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Guardar o site para a publicacao
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  publicar:
+    name: Publicar no GitHub Pages
+    needs: verificar
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      # Liga o Pages na fonte "GitHub Actions" se ainda nao estiver ligado,
+      # para a primeira publicacao nao exigir um passo manual nas configuracoes.
+      - uses: actions/configure-pages@v6
+        with:
+          enablement: true
+
+      - id: deployment
+        uses: actions/deploy-pages@v5

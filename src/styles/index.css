@@ -1,0 +1,61 @@
+@import './fonts.css';
+@import 'tailwindcss';
+@import './tokens.css';
+
+@layer base {
+  html {
+    background-color: var(--color-canvas);
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    /* Ferramenta de trabalho: densa na medida e legivel de relance. */
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /*
+   * Numeros tabulares em tudo: os contadores n/10 e as datas nao podem
+   * mudar de largura ao trocar de digito - e o que faz a matriz ser
+   * legivel de relance em vez de dancar na tela.
+   */
+  :root {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Foco visivel em todo elemento interativo (docs secao 12). */
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* O navegador some com o foco padrao quando trocamos por :focus-visible. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+}
+
+/*
+ * Movimento curto e com proposito (150-200ms). Quem pediu menos movimento
+ * recebe menos movimento: nao e preferencia estetica, e necessidade.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

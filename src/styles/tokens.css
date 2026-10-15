@@ -38,6 +38,19 @@
   --color-warn: #8a5a00;
   --color-warn-soft: #fdf4e3;
 
+  /*
+   * Preenchimento solido com texto branco em cima (botoes primarios e
+   * destrutivos: "Mandar", "Confirmar", badge de contagem, "Excluir"). Nao e
+   * --color-focus nem --color-qN: aqueles sao calibrados para outro papel
+   * (anel de foco, grafico/icone) e o tom pastel que o anel usa no tema
+   * escuro so da ~2.2:1 com texto branco - insuficiente para AA (achado na
+   * auditoria da fase 5, ver tokens.contrast.test.ts).
+   */
+  --color-accent: #1c64d1;
+  --color-accent-ink: #ffffff;
+  --color-danger: #c23a3a;
+  --color-danger-ink: #ffffff;
+
   /* Quadrantes - tema claro */
   --color-q1: #0f9755;
   --color-q1-ink: #0a6b3b;
@@ -82,6 +95,13 @@
 
   --color-warn: #edb84a;
   --color-warn-soft: #251f12;
+
+  /* Mais saturados que no tema claro de proposito: --color-focus/--color-q4
+   * ficam claros demais no escuro para reter 4.5:1 com texto branco em cima. */
+  --color-accent: #2563eb;
+  --color-accent-ink: #ffffff;
+  --color-danger: #c23a3a;
+  --color-danger-ink: #ffffff;
 
   --color-q1: #34c77f;
   --color-q1-ink: #5bd99a;

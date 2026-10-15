@@ -10,6 +10,7 @@ import { useMemo } from 'react'
 import type { QuadrantId } from '@/domain/quadrant.ts'
 import type { Task, TaskEvent } from '@/domain/schema.ts'
 import { sortTasksForQuadrant } from '@/domain/taskLifecycle.ts'
+import { computeWeeklyReview, type WeeklyReviewStats } from '@/domain/weeklyReview.ts'
 import { listPeopleNames } from './peopleRepo.ts'
 import { getDB, LOCAL_META_KEY } from './schema.ts'
 
@@ -171,7 +172,7 @@ export function usePeopleNames(): readonly string[] {
   return useLiveQuery(() => listPeopleNames(db), [], EMPTY_NAMES)
 }
 
-/** Inicio da semana local (segunda-feira), em ISO UTC - para "n eliminadas esta semana". */
+/** Inicio da semana local (segunda-feira), em ISO UTC - para "n eliminadas esta semana" e a revisao semanal. */
 function startOfWeekISO(): string {
   const now = new Date()
   const isoWeekday = now.getDay() === 0 ? 7 : now.getDay()
@@ -195,5 +196,30 @@ export function useEliminatedThisWeek(): number {
       ).length,
     [weekStart],
     0,
+  )
+}
+
+const EMPTY_WEEKLY_REVIEW: WeeklyReviewStats = {
+  completedByQuadrant: { q1: 0, q2: 0, q3: 0, q4: 0 },
+  cameFromOverdueQ2ToQ1: 0,
+  averageInboxMinutes: null,
+  eliminatedCount: 0,
+}
+
+/**
+ * Revisão semanal (docs secao 5.9): lê tarefas e eventos inteiros - aceitável
+ * na escala de um usuário só - e deixa o cálculo de verdade para
+ * `computeWeeklyReview` (puro, testado à parte).
+ */
+export function useWeeklyReview(): WeeklyReviewStats {
+  const db = getDB()
+  const weekStart = startOfWeekISO()
+  return useLiveQuery(
+    async () => {
+      const [tasks, events] = await Promise.all([db.tasks.toArray(), db.task_events.toArray()])
+      return computeWeeklyReview(tasks, events, weekStart)
+    },
+    [weekStart],
+    EMPTY_WEEKLY_REVIEW,
   )
 }

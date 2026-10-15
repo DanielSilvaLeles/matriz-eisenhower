@@ -61,6 +61,11 @@ const checks: Check[] = [
   ['warn', 'surface', AA_TEXT, 'contador em ambar'],
   ['warn', 'warn-soft', AA_TEXT, 'chip de aviso'],
 
+  // Botoes de preenchimento solido com texto branco (achado na fase 5: nem
+  // --color-focus nem --color-q4 foram calibrados para isso - ver tokens.css).
+  ['accent-ink', 'accent', AA_TEXT, 'texto dos botoes "Mandar"/"Confirmar" e do badge de contagem'],
+  ['danger-ink', 'danger', AA_TEXT, 'texto do botao destrutivo "Excluir"'],
+
   // Borda de controle e foco: componentes de interface, 3:1 basta.
   ['border-control', 'surface', AA_NON_TEXT, 'borda do campo e do checkbox'],
   ['border-control', 'surface-muted', AA_NON_TEXT, 'borda do campo em superficie secundaria'],

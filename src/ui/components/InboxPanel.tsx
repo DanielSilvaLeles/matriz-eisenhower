@@ -42,7 +42,7 @@ export function InboxPanel({ collapsed, onCollapsedChange }: InboxPanelProps) {
       >
         <Inbox className="size-4" aria-hidden="true" />
         {tasks.length > 0 ? (
-          <span className="rounded-full bg-focus px-1.5 text-[11px] font-semibold text-white tabular-nums">
+          <span className="rounded-full bg-accent px-1.5 text-[11px] font-semibold text-accent-ink tabular-nums">
             {tasks.length}
           </span>
         ) : null}

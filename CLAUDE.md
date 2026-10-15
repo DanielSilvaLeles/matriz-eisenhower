@@ -33,6 +33,7 @@ src/
     dateStatus.ts     selos Hoje/Atrasada/Cobrar hoje, chips de data da triagem
     delegationMessage.ts  "Copiar mensagem de delegação" (Q3)
     calendarLink.ts   link pré-preenchido do Google Agenda, sem OAuth
+    weeklyReview.ts   as quatro métricas da revisão semanal (docs seção 5.9)
   db/       Dexie: schema, migrations, repositório de tarefas e backup
             changeSignal.ts avisa o sync de uma escrita sem o db conhecer o sync
             peopleRepo.ts   autocomplete de "Para quem?" (docs seção 5.3)
@@ -671,6 +672,85 @@ faria sentido) automatizar isso; os critérios que o navegador checa para
 *oferecer* a instalação (manifest válido, ícones 192/512, service worker
 ativo) são o que fica testável e é exatamente o que este arquivo confere.
 
+### Revisão e refinamento (fase 5) — dois bugs reais de contraste, achados por matemática, não por olho
+
+**Revisão semanal** (docs secao 5.9): uma aba nova dentro do próprio
+`HistoryPanel.tsx` (não um painel separado - a seção 5.9 do documento já
+agrupa "Histórico e revisão" como um conceito só, e o cabeçalho já tinha
+ícones demais para caber mais um em 360px). `src/domain/weeklyReview.ts` é
+puro e cobre as quatro métricas pedidas:
+
+- **Distribuição de concluídas por quadrante**: `tasks.status === 'done'`
+  com `completed_at` desta semana, agrupado por `quadrant`.
+- **Quantas chegaram em Q1 vindas de Q2 atrasado**: aproximação documentada
+  no próprio código - não existe um retrato histórico do campo `date` no
+  `task_events`, só o quadrante de origem/destino. A contagem compara a
+  data **atual** da tarefa com o dia da movimentação; se a data foi editada
+  depois de chegar em Q1, o número pode não refletir mais a realidade
+  daquele momento. Aceitável para um sinal de "a Q1 está vivendo de
+  apagar incêndio" (docs seção 3, princípio 1) - não precisa ser perfeito,
+  precisa ser um alerta.
+- **Tempo médio parado na caixa de entrada**: só de quem *saiu* dela
+  (evento `moved` com `from_quadrant: null`) nesta semana - `created_at`
+  até o instante do evento. `null` quando nada foi triado ainda.
+- **Eliminadas esta semana**: mesma lógica de `useEliminatedThisWeek`
+  (fase 3), mas computada de novo dentro do mesmo `computeWeeklyReview`
+  para a revisão trazer os quatro números de uma vez só.
+
+**Dois bugs reais de contraste no tema escuro, achados calculando as
+razões (não só olhando a tela)**: `--color-focus` e `--color-q4` nunca
+foram calibrados para servir de **fundo sólido com texto branco em cima**
+- só para anel de foco (`--color-focus`, precisa 3:1 contra a superfície) e
+gráfico/ícone (`--color-qN`, idem). No tema escuro os dois ficam claros
+demais para esse papel:
+
+- `bg-focus` + `text-white"` (badge de contagem da caixa de entrada,
+  botões "Mandar"/"Confirmar"/"Salvar" da triagem): `--color-focus` no
+  escuro é `#7fb0f5` (pastel, de propósito - precisa **contrastar** com a
+  superfície escura). Branco em cima disso dá **2.2:1** - bem abaixo do
+  4.5:1 que AA exige. `tokens.contrast.test.ts` nunca pegou isso porque só
+  testava `--color-focus` como anel/borda, nunca como fundo de botão.
+- `bg-q4` + `text-white` (botão "Substituir" ao importar backup):
+  `--color-q4` no escuro é `#e26a6a`, dá **3.2:1** com branco - também
+  abaixo de 4.5:1.
+
+Corrigido com dois tokens novos, só para esse papel (`tokens.css`):
+`--color-accent`/`--color-accent-ink` (botões primários) e
+`--color-danger`/`--color-danger-ink` (botão destrutivo) - calibrados
+especificamente para 4.5:1 com o texto que vai em cima, em vez de
+reaproveitar um token pensado para outra finalidade. `tokens.contrast.test.ts`
+ganhou os dois pares na lista de verificações, para a próxima pessoa que
+inventar um botão de fundo sólido não repetir o erro sem o CI avisar.
+**Lição:** um token de cor "serve" visualmente em vários lugares, mas só
+está *provado* AA onde o teste de contraste realmente o testa - adicionar
+um uso novo para um token existente (fundo + texto, em vez de
+anel/gráfico) é adicionar uma afirmação de acessibilidade nova, que
+precisa da própria verificação.
+
+**Um bug real de foco invisível**: `AddTaskField.tsx` (o campo "Adicionar
+tarefa" sempre visível de cada quadrante) tinha `focus:outline-none` sem
+nenhum substituto - ao contrário de `CaptureField.tsx`, que troca o anel
+por `focus-visible:border-focus`. Resultado: navegar até esse campo só de
+teclado não mostrava **nenhum** indicador visual de foco, violando
+diretamente "foco visível em todo elemento interativo" (docs seção 12) -
+apesar de o projeto já ter uma regra `:focus-visible` global em
+`src/styles/index.css` desde a fase 1a, essa regra de componente a
+sobrescrevia silenciosamente. Corrigido removendo o `outline-none`: o
+campo volta a usar o anel global padrão, sem precisar de nenhum CSS
+dedicado.
+
+**O resto da auditoria de acessibilidade já estava coberto desde a fase
+1a, confirmado nesta revisão em vez de refeito**: `:focus-visible`
+universal e `prefers-reduced-motion` (zera toda `animation`/`transition`
+do site, `*`, em `src/styles/index.css`) já cobrem automaticamente
+qualquer componente novo das fases 2-4 sem precisar de CSS por
+componente - só a exceção pontual acima (um `outline-none` sem
+substituto) escapou disso. `aria-live` já vinha dos elementos `<output>`
+(papel implícito `status`) usados em `SyncIndicator`/`UndoToast`/
+`UpdateBanner`, e dos anúncios de fase do dnd-kit (fase 1c). Nenhuma
+mudança nova foi necessária nessas frentes - só a auditoria confirmou que
+seguiam valendo depois de três fases de componentes novos em cima.
+
 ## Segurança (o repositório é público)
 
 - **Nenhum segredo no código, nos testes ou no histórico do git.**
@@ -785,5 +865,28 @@ trata cada linha como um item separado - achado testando na mão
 (claude-in-chrome), não pelos testes automatizados (que validavam o
 conteúdo combinado, mas não pensavam em como ele seria consumido depois).
 
-Ainda não tem: revisão semanal e polimento visual/acessibilidade (fase 5).
-Fases em `docs/prompt-matriz-eisenhower.md`, seção 11.
+Fase 5 concluída (última do plano original - `docs/prompt-matriz-eisenhower.md`
+seção 11): revisão semanal (docs 5.9 - distribuição de concluídas por
+quadrante, quantas chegaram em Q1 vindas de Q2 atrasado, tempo médio parado
+na caixa de entrada, quantas eliminadas), numa aba nova dentro do próprio
+histórico; auditoria de acessibilidade confirmando que `:focus-visible`
+universal e `prefers-reduced-motion` (ambos desde a fase 1a) já cobriam os
+componentes das fases 2-4 sem precisar de nada novo.
+
+Três bugs reais de acessibilidade encontrados nesta fase, nenhum por
+inspeção visual - dois por calcular a razão de contraste de verdade (não só
+"parece legível"), um por navegar de teclado até o fim (detalhado acima):
+`--color-focus`/`--color-q4` usados como fundo sólido com texto branco
+davam só 2.2:1 e 3.2:1 no tema escuro (bem abaixo do 4.5:1 de AA) porque
+nunca tinham sido calibrados para esse papel - só para anel de foco e
+gráfico/ícone, que são exigências diferentes (3:1, não 4.5:1); corrigido
+com dois tokens novos (`--color-accent`/`-ink`, `--color-danger`/`-ink`)
+cobertos no `tokens.contrast.test.ts`. E o campo "Adicionar tarefa" de
+cada quadrante tinha `focus:outline-none` sem nenhum substituto - o único
+elemento interativo do app sem indicador de foco visível algum, apesar da
+regra global `:focus-visible` existir desde a fase 1a (a classe do próprio
+componente a sobrescrevia).
+
+Esta é a última fase do plano original do documento. O app cobre as
+cinco fases (`docs/prompt-matriz-eisenhower.md`, seção 11): núcleo local,
+sincronização, triagem, PWA, e agora revisão e refinamento.

@@ -99,7 +99,7 @@ export function TriageHelpStep({ onConfirm, onCancel }: TriageHelpStepProps) {
           onClick={() => {
             if (urgent !== null && important !== null) onConfirm(urgent, important)
           }}
-          className="flex-1 rounded-md bg-focus px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+          className="flex-1 rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-accent-ink disabled:opacity-50"
         >
           Mandar
         </button>

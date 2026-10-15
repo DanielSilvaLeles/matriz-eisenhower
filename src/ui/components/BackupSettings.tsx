@@ -132,7 +132,7 @@ export function BackupSettings() {
             <button
               type="button"
               onClick={handleConfirmImport}
-              className="flex-1 rounded-md bg-q4 px-3 py-1.5 font-medium text-white hover:opacity-90"
+              className="flex-1 rounded-md bg-danger px-3 py-1.5 font-medium text-danger-ink hover:opacity-90"
             >
               Substituir
             </button>

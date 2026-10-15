@@ -36,7 +36,7 @@ export function TriageEditStep({ initialTitle, onSave }: TriageEditStepProps) {
         onClick={() => {
           onSave(value)
         }}
-        className="rounded-md bg-focus px-3 py-1.5 text-[13px] font-medium text-white"
+        className="rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-accent-ink"
       >
         Salvar
       </button>

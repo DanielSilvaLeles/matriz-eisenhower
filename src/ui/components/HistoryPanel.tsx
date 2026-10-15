@@ -6,7 +6,11 @@ import { getDB } from '@/db/schema.ts'
 import { restoreTaskFromHistory } from '@/db/tasksRepo.lifecycle.ts'
 import type { QuadrantId } from '@/domain/quadrant.ts'
 import type { Task } from '@/domain/schema.ts'
+import { cn } from '@/lib/utils.ts'
 import { MoveToMenu } from './MoveToMenu.tsx'
+import { WeeklyReviewSection } from './WeeklyReviewSection.tsx'
+
+type Tab = 'historico' | 'revisao'
 
 function statusLabel(status: Task['status']): string {
   return status === 'archived' ? 'Eliminada' : 'Concluída'
@@ -39,6 +43,7 @@ function handleRestore(task: Task, toQuadrant: QuadrantId | null): void {
  */
 export function HistoryPanel() {
   const [open, setOpen] = useState(false)
+  const [tab, setTab] = useState<Tab>('historico')
   const tasks = useHistoryTasks()
   const [query, setQuery] = useState('')
 
@@ -74,54 +79,99 @@ export function HistoryPanel() {
           </div>
 
           <Dialog.Description className="sr-only">
-            Tarefas concluídas e eliminadas, com opção de restaurar.
+            Tarefas concluídas e eliminadas, com opção de restaurar, e a
+            revisão semanal.
           </Dialog.Description>
 
-          <input
-            type="text"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value)
-            }}
-            placeholder="Buscar pelo título…"
-            autoComplete="off"
-            className="mb-3 w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-text-subtle focus-visible:border-focus"
-          />
+          <div className="mb-3 flex gap-1.5" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'historico'}
+              onClick={() => {
+                setTab('historico')
+              }}
+              className={cn(
+                'rounded-md px-2.5 py-1 text-[13px]',
+                tab === 'historico'
+                  ? 'bg-surface-muted font-medium text-text'
+                  : 'text-text-muted hover:bg-surface-muted',
+              )}
+            >
+              Histórico
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'revisao'}
+              onClick={() => {
+                setTab('revisao')
+              }}
+              className={cn(
+                'rounded-md px-2.5 py-1 text-[13px]',
+                tab === 'revisao'
+                  ? 'bg-surface-muted font-medium text-text'
+                  : 'text-text-muted hover:bg-surface-muted',
+              )}
+            >
+              Revisão semanal
+            </button>
+          </div>
 
-          <ul className="min-h-0 flex-1 overflow-y-auto">
-            {filtered.length === 0 ? (
-              <p className="py-2 text-xs text-text-subtle">
-                {tasks.length === 0
-                  ? 'Nenhuma tarefa concluída ou eliminada ainda.'
-                  : 'Nada encontrado.'}
-              </p>
-            ) : (
-              filtered.map((task) => (
-                <li
-                  key={task.id}
-                  // `group`: o gatilho do MoveToMenu ("Restaurar") so aparece
-                  // em hover/foco a partir do breakpoint `sm` - sem um
-                  // ancestral `.group`, ficaria invisivel para sempre aqui
-                  // (mesmo bug encontrado e corrigido no TaskDetailPanel).
-                  className="group flex items-center gap-2 border-b border-border py-2 last:border-b-0"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] text-text">{task.title}</p>
-                    <p className="mt-0.5 text-[11px] text-text-subtle">
-                      {statusLabel(task.status)} · {formatHistoryDate(task.updated_at)}
-                    </p>
-                  </div>
-                  <MoveToMenu
-                    currentQuadrant={null}
-                    onMove={(toQuadrant) => {
-                      handleRestore(task, toQuadrant)
-                    }}
-                    triggerLabel={`Restaurar "${task.title}"`}
-                  />
-                </li>
-              ))
-            )}
-          </ul>
+          {tab === 'revisao' ? (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <WeeklyReviewSection />
+            </div>
+          ) : (
+            <>
+              <input
+                type="text"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value)
+                }}
+                placeholder="Buscar pelo título…"
+                autoComplete="off"
+                className="mb-3 w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text placeholder:text-text-subtle focus-visible:border-focus"
+              />
+
+              <ul className="min-h-0 flex-1 overflow-y-auto">
+                {filtered.length === 0 ? (
+                  <p className="py-2 text-xs text-text-subtle">
+                    {tasks.length === 0
+                      ? 'Nenhuma tarefa concluída ou eliminada ainda.'
+                      : 'Nada encontrado.'}
+                  </p>
+                ) : (
+                  filtered.map((task) => (
+                    <li
+                      key={task.id}
+                      // `group`: o gatilho do MoveToMenu ("Restaurar") so
+                      // aparece em hover/foco a partir do breakpoint `sm` -
+                      // sem um ancestral `.group`, ficaria invisivel para
+                      // sempre aqui (mesmo bug encontrado e corrigido no
+                      // TaskDetailPanel).
+                      className="group flex items-center gap-2 border-b border-border py-2 last:border-b-0"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px] text-text">{task.title}</p>
+                        <p className="mt-0.5 text-[11px] text-text-subtle">
+                          {statusLabel(task.status)} · {formatHistoryDate(task.updated_at)}
+                        </p>
+                      </div>
+                      <MoveToMenu
+                        currentQuadrant={null}
+                        onMove={(toQuadrant) => {
+                          handleRestore(task, toQuadrant)
+                        }}
+                        triggerLabel={`Restaurar "${task.title}"`}
+                      />
+                    </li>
+                  ))
+                )}
+              </ul>
+            </>
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

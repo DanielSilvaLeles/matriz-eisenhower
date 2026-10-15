@@ -38,7 +38,7 @@ export function TriageDateStep({ taskTitle, today, onPick, onSkip }: TriageDateS
             onClick={() => {
               onPick(custom)
             }}
-            className="rounded-md bg-focus px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+            className="rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-accent-ink disabled:opacity-50"
           >
             Confirmar
           </button>
@@ -154,7 +154,7 @@ export function TriageDelegateStep({
           onClick={() => {
             onPick(name.trim())
           }}
-          className="shrink-0 rounded-md bg-focus px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+          className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-accent-ink disabled:opacity-50"
         >
           Confirmar
         </button>

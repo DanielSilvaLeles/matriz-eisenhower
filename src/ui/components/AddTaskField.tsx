@@ -53,7 +53,7 @@ export function AddTaskField({ quadrantVerb, onAdd }: AddTaskFieldProps) {
         }}
         placeholder="Adicionar tarefa"
         autoComplete="off"
-        className="min-w-0 flex-1 bg-transparent py-1 text-[13px] text-text placeholder:text-text-subtle focus:outline-none"
+        className="min-w-0 flex-1 bg-transparent py-1 text-[13px] text-text placeholder:text-text-subtle"
       />
       {failed ? (
         <span className="shrink-0 text-xs text-q4-ink" role="alert">

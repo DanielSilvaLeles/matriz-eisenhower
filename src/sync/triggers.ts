@@ -9,7 +9,7 @@
  * banco precisar saber que a sincronizacao existe.
  */
 import { onLocalWrite } from '@/db/changeSignal.ts'
-import { runSync } from './engine.ts'
+import { runSync, syncStatusStore } from './engine.ts'
 
 const INTERVAL_MS = 60_000
 const DEBOUNCE_MS = 3_000
@@ -18,6 +18,15 @@ function fireAndForget(): void {
   runSync().catch((error: unknown) => {
     console.error('Falha num ciclo de sincronizacao', error)
   })
+}
+
+// "Offline" aparece na hora, sem esperar o proximo gatilho de sync tentar
+// e falhar (docs secao 6.3: "o estado da sincronizacao e sempre visivel e
+// honesto"; secao 8, fase 4: "captura offline... com indicacao visual").
+// Nao precisa de handler proprio para 'online': o listener de reconexao ja
+// dispara um ciclo de sync, que corrige o indicador sozinho ao confirmar.
+function handleOffline(): void {
+  syncStatusStore.set({ kind: 'offline' })
 }
 
 /** Liga os gatilhos automaticos. Devolve uma funcao para desligar tudo (teste/HMR). */
@@ -46,6 +55,7 @@ export function setupSyncTriggers(): () => void {
   document.addEventListener('visibilitychange', handleVisible)
   window.addEventListener('focus', fireAndForget)
   window.addEventListener('online', fireAndForget)
+  window.addEventListener('offline', handleOffline)
   const stopListeningToWrites = onLocalWrite(handleLocalWrite)
 
   return () => {
@@ -54,6 +64,7 @@ export function setupSyncTriggers(): () => void {
     document.removeEventListener('visibilitychange', handleVisible)
     window.removeEventListener('focus', fireAndForget)
     window.removeEventListener('online', fireAndForget)
+    window.removeEventListener('offline', handleOffline)
     stopListeningToWrites()
   }
 }

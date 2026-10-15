@@ -1,11 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { usePendingCount } from '@/db/hooks.ts'
-import { getDB } from '@/db/schema.ts'
-import { archiveStaleQ4Tasks } from '@/db/archiveQ4.ts'
-import { setupSyncTriggers } from '@/sync/triggers.ts'
 import type { QuadrantId } from '@/domain/quadrant.ts'
 import { DndWorkspace } from '@/ui/dnd/DndWorkspace.tsx'
 import { useGlobalShortcuts } from '@/ui/shortcuts/useGlobalShortcuts.ts'
+import { useAppStartupEffects } from '@/ui/hooks/useAppStartupEffects.ts'
 import { useMediaQuery } from '@/ui/hooks/useMediaQuery.ts'
 import { useWarnBeforeUnload } from '@/ui/hooks/useWarnBeforeUnload.ts'
 import { AppHeaderActions } from '@/ui/components/AppHeaderActions.tsx'
@@ -27,6 +25,7 @@ function scrollQuadrantIntoView(quadrant: QuadrantId): void {
 
 export function App() {
   useGlobalShortcuts()
+  useAppStartupEffects()
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
   const pendingCount = usePendingCount()
   useWarnBeforeUnload(pendingCount > 0)
@@ -44,32 +43,6 @@ export function App() {
     if (isDesktop) scrollQuadrantIntoView(target)
     else setMobileSelected(target)
   }
-
-  useEffect(() => {
-    // Pede para o navegador nao limpar o banco local por pressao de espaco
-    // (docs secao 6.3). So pedido, nunca garantido: se o navegador recusar
-    // ou nao suportar, o app segue normalmente - best-effort e silencioso.
-    try {
-      navigator.storage.persist().catch(() => {
-        // Recusado pelo navegador: nada a fazer, so seguir sem a garantia.
-      })
-    } catch {
-      // API nao suportada neste navegador.
-    }
-  }, [])
-
-  // Liga os gatilhos automaticos de sync (docs secao 6.1): ao abrir, ao
-  // focar, a cada 60s visivel, 3s apos editar, ao voltar a conexao.
-  useEffect(() => setupSyncTriggers(), [])
-
-  // Arquivamento automatico do Q4 na virada do dia (docs secao 5.4): roda
-  // uma vez ao abrir o app - suficiente, nao precisa ser no instante exato
-  // da meia-noite (ver src/db/archiveQ4.ts).
-  useEffect(() => {
-    archiveStaleQ4Tasks(getDB(), new Date().toISOString()).catch((error: unknown) => {
-      console.error('Falha ao arquivar tarefas de Eliminar', error)
-    })
-  }, [])
 
   return (
     <DndWorkspace>

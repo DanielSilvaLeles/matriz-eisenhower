@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+/// <reference types="vite-plugin-pwa/client" />
 
 /**
  * Identificação do build, injetada pelo vite.config.ts. Serve para conferir

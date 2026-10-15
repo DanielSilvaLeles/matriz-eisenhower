@@ -2,6 +2,7 @@ import { useState, type ClipboardEvent, type SubmitEvent } from 'react'
 import { captureItem } from '@/capture.ts'
 import { getDB } from '@/db/schema.ts'
 import { discardTask } from '@/db/tasksRepo.ts'
+import { isStandalone } from '@/pwa/displayMode.ts'
 import { pushUndo } from '@/ui/undo/store.ts'
 
 /** Id estavel: o atalho global `N` foca este campo de qualquer lugar (docs secao 5.2). */
@@ -24,7 +25,7 @@ export function CaptureField() {
     setValue('')
     setFailed(false)
     try {
-      const created = await captureItem({ text: trimmed, source: 'web' })
+      const created = await captureItem({ text: trimmed, source: isStandalone() ? 'pwa' : 'web' })
       if (announceBatch && created.length > 1) {
         const db = getDB()
         pushUndo({

@@ -42,8 +42,9 @@ src/
   sync/     ciclo pull -> merge -> push -> verificação
     client.ts    chamada HTTP de baixo nível (classifica toda falha num motivo)
     engine.ts     o ciclo, o store de status, de-duplicação de chamadas concorrentes
-    triggers.ts   quando sincronizar (abrir, foco, 60s, debounce, online, botão)
+    triggers.ts   quando sincronizar (abrir, foco, 60s, debounce, online/offline, botão)
     config.ts     URL/token — só em localStorage
+  pwa/      intenção de chegada no app (docs seção 8): share target e atalho "Nova anotação"
   ui/
     components/  componentes de apresentação
     triage/      modo triagem (docs seção 5.3) — store + overlay + passos
@@ -56,7 +57,9 @@ src/
     hooks/       hooks genéricos (useMediaQuery, useNowTick/useToday, useTheme, useWarnBeforeUnload)
   lib/      utilitários genéricos
   styles/   tokens de design e CSS global
-e2e/        Playwright — 3 fluxos essenciais (docs seção 9)
+public/
+  icons/      ícones do manifest (.png gerados + .svg fonte, para regenerar sem depender de nada)
+e2e/        Playwright — 3 fluxos essenciais (docs seção 9) + pwa.spec.ts (fase 4)
 apps-script/  backend no Google Apps Script (Code.gs + README.md de publicação)
   test/       harness Node que simula os globais do Apps Script, sem publicar nada
 ```
@@ -580,6 +583,94 @@ Dialog pode não ter terminado de entrar no conteúdo a tempo do primeiro
 `keydown` sintético do Playwright, uma corrida que não aparece ao testar
 na mão (onde sempre há alguns milissegundos entre abrir e a próxima tecla).
 
+### PWA (fase 4) — manifest explícito, update sob demanda, um bug real no share target
+
+**`vite-plugin-pwa` com `registerType: 'prompt'` e `injectRegister: null`:**
+o documento (secao 8) pede para o service worker **nunca** recarregar a
+página sozinho, só avisar "Nova versão disponível" - `'prompt'` é o que faz
+a versão nova ficar esperando até a pessoa confirmar (`autoUpdate`
+recarregaria sozinho, inaceitável no meio de uma edição não salva).
+`injectRegister: null` desliga o script de registro automático que o
+plugin injetaria no `index.html`; o registro acontece pelo nosso próprio
+código, via `useRegisterSW()` de `virtual:pwa-register/react` dentro de
+`UpdateBanner.tsx` - assim o banner "Nova versão disponível" e o registro
+do service worker são a mesma peça, sem um hook escondido registrando por
+trás.
+
+**Todo campo do manifest com o subcaminho por extenso**
+(`${BASE_PATH}icons/icon-192.png`, não só `icons/icon-192.png`): a mesma
+lição da fase 1a (manifest/`start_url`/`scope` têm que seguir o
+subcaminho do Pages) - `vite-plugin-pwa` até resolveria boa parte sozinho
+a partir do `base` do Vite, mas ser explícito aqui evita descobrir um
+ícone quebrado só depois de publicar, exatamente o tipo de problema que a
+seção 11 avisa ("é onde esse tipo de configuração costuma falhar").
+
+**Ícones gerados com `sharp`, mas `sharp` não é dependência do projeto:**
+sem `convert`/`rsvg-convert`/`inkscape` disponíveis, os PNGs
+(`public/icons/*.png`) foram rasterizados a partir de SVGs-fonte com
+`sharp` instalado **temporariamente** (`npm install --no-save`), depois
+removido (`npm uninstall`). Os SVGs-fonte (`icon.svg`, `icon-maskable.svg`,
+`shortcut-capture.svg`) ficam versionados em `public/icons/` para
+regenerar os PNGs no futuro sem precisar resolver essa dependência de novo
+- qualquer ferramenta de SVG→PNG serve, o projeto não depende de nenhuma
+em particular.
+
+**Bug real: `combineSharedText` juntando os campos com quebra de linha
+fazia um compartilhamento virar três tarefas, não uma.** `captureItem`
+trata cada linha do texto como um item separado - é assim que "colar
+várias linhas vira um item por linha" funciona (docs secao 5.2). O share
+target entrega título, texto e URL como campos separados
+(`src/pwa/useIncomingIntent.ts`), e a primeira versão de
+`combineSharedText` (`src/domain/shareTarget.ts`) os juntava com `\n`,
+sem perceber que estava alimentando o mesmo splitter de colagem
+multilinha - compartilhar uma página virava três itens na caixa de
+entrada (título, texto e URL cada um separado) em vez de um só.
+Encontrado testando na mão (claude-in-chrome, navegando direto para
+`?title=...&text=...&url=...`), não nos testes automatizados - o teste em
+`shareTarget.test.ts` conferia o conteúdo combinado, mas não pensava em
+como esse conteúdo seria consumido depois. Corrigido trocando o separador
+para `" — "` (nunca quebra de linha) e documentado em
+`e2e/pwa.spec.ts`, que confere explicitamente que vira **uma** tarefa.
+
+**Lição de metodologia, descoberta no meio da investigação deste bug:**
+reusar a mesma aba do navegador entre `force: true` (descartar o diálogo
+de "sair da página?") repetidos pode deixar o bundle JS **desatualizado**
+sem avisar - a aba continuava servindo um JavaScript de antes do rebuild
+mais recente, fazendo um teste manual parecer confirmar "nada acontece"
+quando na verdade o código novo nunca chegou a rodar. A pista: o
+`document.querySelector('script[src]')` mostrava o hash do bundle
+**antigo** muito depois de reconstruir. Corrigido abrindo uma aba nova
+para cada navegação que importa carregar o build mais recente, em vez de
+reusar uma aba com histórico de `beforeunload` descartado.
+
+**Indicador "Offline" na hora, sem esperar uma tentativa de sincronização**
+(docs secao 6.3 e 8): `src/sync/triggers.ts` já tinha um listener para
+`online` (dispara um ciclo de sync ao reconectar), mas nada para
+`offline` - o indicador só saberia que a rede caiu na PRÓXIMA vez que
+algum gatilho tentasse sincronizar e falhasse. Um `window.addEventListener
+('offline', ...)` que escreve `{ kind: 'offline' }` direto no
+`syncStatusStore` resolve isso sem precisar de nenhuma tentativa de rede -
+"honesto" na hora, não só eventualmente.
+
+**Teste de offline de verdade, não simulado:** `e2e/pwa.spec.ts` usa
+`context.setOffline(true)` do Playwright - desliga a rede de verdade
+naquele contexto de navegador, não troca nenhuma flag da aplicação. O
+teste de "funciona offline" só é válido se o app realmente não conseguir
+alcançar a rede, não se a gente *finge* que não consegue.
+
+### Playwright — PWA
+
+`e2e/pwa.spec.ts` cobre o que dá pra automatizar do "teste de instalação
+do PWA no subcaminho" que a seção 11 pede: manifest válido com
+`start_url`/`scope`/ícones certos, o app funcionando depois de
+`context.setOffline(true)` + recarregar, o indicador "Offline" aparecendo
+sem esperar uma tentativa de sync, e os dois jeitos de "chegar com
+intenção" (share target vira uma tarefa só, `?captura=1` foca o campo).
+**Instalar de verdade é um fluxo do sistema operacional** - não dá (nem
+faria sentido) automatizar isso; os critérios que o navegador checa para
+*oferecer* a instalação (manifest válido, ícones 192/512, service worker
+ativo) são o que fica testável e é exatamente o que este arquivo confere.
+
 ## Segurança (o repositório é público)
 
 - **Nenhum segredo no código, nos testes ou no histórico do git.**
@@ -615,12 +706,19 @@ o Pages realmente publicou a versão nova.
   cerca de 1 minuto) ou ao clicar em "Sincronizar agora".
 - **O push envia o documento inteiro**, não um delta. Simples e suficiente nesta
   escala; se o arquivo crescer muito, reavaliar.
-- **Bundle de produção em ~660 KB (203 KB gzip)**, acima do aviso padrão de
+- **Bundle de produção em ~663 KB (205 KB gzip)**, acima do aviso padrão de
   500 KB do Vite. Vem de dnd-kit + radix-ui + Dexie + React, tudo carregado de
-  uma vez (sem `import()` dinâmico). Aceitável por ora: é um PWA que faz cache
-  do app inteiro no primeiro acesso (fase 4) — carrega uma vez, funciona
-  offline depois. Reavaliar com `code-splitting` se a fase 4 mostrar isso como
-  problema real de carregamento inicial.
+  uma vez (sem `import()` dinâmico). Aceitável: desde a fase 4 é mesmo um PWA
+  que faz cache do app inteiro no primeiro acesso (service worker,
+  `vite.config.ts`) — carrega uma vez, funciona offline depois, o tamanho do
+  bundle deixa de ser o problema recorrente que seria sem cache. Reavaliar
+  com `code-splitting` só se o carregamento inicial (antes do cache existir)
+  virar queixa real.
+- **O service worker só avisa de uma versão nova na próxima vez que o app é
+  aberto/focado** (docs 6.1-style polling, não um push) — se a aba ficar
+  aberta em segundo plano por muito tempo sem perder e recuperar o foco, o
+  aviso "Nova versão disponível" pode demorar a aparecer. Aceitável para um
+  app de um usuário só.
 - **Arrastar para reordenar dentro de Q2 não "gruda"**: Q2 sempre reordena a
   exibição por data (docs 5.4), então soltar numa posição manual específica
   é imediatamente sobrescrito no próximo render. Decisão deliberada, não bug
@@ -670,6 +768,22 @@ uma releitura assíncrona do Dexie (achado pelo Playwright, não pelo teste
 manual — o padrão clássico desta fase inteira: bugs de timing/corrida
 aparecem no automatizado, bugs puramente visuais aparecem na mão).
 
-Ainda não tem: PWA (manifest, service worker, share target, atalho de
-captura), revisão semanal e polimento visual/acessibilidade (fase 5). Fases
-em `docs/prompt-matriz-eisenhower.md`, seção 11.
+Fase 4 concluída: instalável, com manifest (`id`/`name`/`start_url`/`scope`
+no subcaminho certo, ícones 192/512/maskable) e `registerType: 'prompt'`
+(nunca recarrega sozinho - banner "Nova versão disponível" com botão
+"Atualizar"); atalho de app "Nova anotação" (`?captura=1`, foca a captura);
+share target por GET (título+texto+URL viram uma tarefa só na caixa de
+entrada, com a origem "Compartilhado"); indicador "Offline" na hora, sem
+esperar uma tentativa de sync; captura e navegação continuam funcionando
+com o servidor totalmente fora do ar (confirmado na mão e por
+`context.setOffline(true)` do Playwright); 5 testes Playwright de PWA no CI.
+
+Um bug real encontrado nesta fase (detalhado acima): compartilhar um link
+com título, texto e URL virava **três** tarefas na caixa de entrada em vez
+de uma, porque o texto combinado usava quebra de linha e `captureItem`
+trata cada linha como um item separado - achado testando na mão
+(claude-in-chrome), não pelos testes automatizados (que validavam o
+conteúdo combinado, mas não pensavam em como ele seria consumido depois).
+
+Ainda não tem: revisão semanal e polimento visual/acessibilidade (fase 5).
+Fases em `docs/prompt-matriz-eisenhower.md`, seção 11.

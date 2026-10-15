@@ -3,7 +3,11 @@ import { defineConfig, devices } from '@playwright/test'
 /**
  * 3 fluxos essenciais (docs secao 9): adicionar e mover tarefa (fase 1c),
  * ciclo de sincronizacao contra um script simulado (fase 2) e triagem da
- * caixa de entrada (fase 3).
+ * caixa de entrada (fase 3). Mais `e2e/pwa.spec.ts` (fase 4): manifest no
+ * subcaminho certo, app funciona offline, share target e atalho de captura -
+ * o "teste de instalação do PWA no subcaminho" que a seção 11 pede, na
+ * medida do que da pra automatizar (instalar de verdade é um fluxo do
+ * sistema operacional).
  *
  * Roda contra o build de producao (`npm run build` + `npm run preview`),
  * nao o servidor de desenvolvimento - e o que o CI publica de verdade.

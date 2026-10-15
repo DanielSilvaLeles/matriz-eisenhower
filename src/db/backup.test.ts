@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applyBackup, currentCounts, exportBackup } from './backup.ts'
+import { getMeta } from './metaRepo.ts'
 import { MatrizDB } from './schema.ts'
 import { addTaskToQuadrant } from './tasksRepo.ts'
 import { parseBackup } from '@/domain/backup.ts'
@@ -73,5 +74,15 @@ describe('applyBackup', () => {
     const restored = await db.tasks.toArray()
     expect(restored).toHaveLength(1)
     expect(restored[0]?.title).toBe('Vai e volta')
+  })
+
+  it('marca toda tarefa importada como pendente, para o proximo sync empurrar', async () => {
+    const task = await addTaskToQuadrant(db, 'q1', 'Vem do backup')
+    const backup = await exportBackup(db)
+
+    await applyBackup(db, backup)
+
+    const meta = await getMeta(db)
+    expect(meta.pending_ids).toEqual([task.id])
   })
 })

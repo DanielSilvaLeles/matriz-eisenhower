@@ -9,7 +9,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo } from 'react'
 import type { QuadrantId } from '@/domain/quadrant.ts'
 import type { Task } from '@/domain/schema.ts'
-import { getDB } from './schema.ts'
+import { getDB, LOCAL_META_KEY } from './schema.ts'
 
 function byPosition(a: Task, b: Task): number {
   return a.position - b.position
@@ -100,4 +100,14 @@ export function useInboxTasks(): readonly Task[] {
 /** Quantidade de itens na caixa de entrada - o badge do painel. */
 export function useInboxCount(): number {
   return useInboxTasks().length
+}
+
+/** Contador de alteracoes pendentes de confirmacao (docs secao 6.3). */
+export function usePendingCount(): number {
+  const db = getDB()
+  return useLiveQuery(
+    async () => (await db.meta.get(LOCAL_META_KEY))?.pending_ids.length ?? 0,
+    [],
+    0,
+  )
 }

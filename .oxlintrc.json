@@ -50,7 +50,7 @@
     // correcao de tipo de retorno (consistent-return) e desligamos esta.
     "unicorn/no-useless-undefined": "off"
   },
-  "ignorePatterns": ["dist", "node_modules", "coverage"],
+  "ignorePatterns": ["dist", "node_modules", "coverage", "apps-script"],
   "overrides": [
     {
       "files": ["**/*.test.ts", "**/*.test.tsx", "vite.config.ts"],

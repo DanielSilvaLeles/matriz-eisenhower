@@ -1,12 +1,16 @@
 import { useEffect } from 'react'
+import { usePendingCount } from '@/db/hooks.ts'
+import { setupSyncTriggers } from '@/sync/triggers.ts'
 import { DndWorkspace } from '@/ui/dnd/DndWorkspace.tsx'
 import { useGlobalShortcuts } from '@/ui/shortcuts/useGlobalShortcuts.ts'
 import { useMediaQuery } from '@/ui/hooks/useMediaQuery.ts'
-import { BackupPanel } from '@/ui/components/BackupPanel.tsx'
+import { useWarnBeforeUnload } from '@/ui/hooks/useWarnBeforeUnload.ts'
 import { HelpOverlay } from '@/ui/components/HelpOverlay.tsx'
 import { InboxPanel } from '@/ui/components/InboxPanel.tsx'
 import { MatrixGrid } from '@/ui/components/MatrixGrid.tsx'
 import { MobileMatrixView } from '@/ui/components/MobileMatrixView.tsx'
+import { SettingsPanel } from '@/ui/components/SettingsPanel.tsx'
+import { SyncIndicator } from '@/ui/components/SyncIndicator.tsx'
 import { ThemeToggle } from '@/ui/components/ThemeToggle.tsx'
 import { UndoToast } from '@/ui/components/UndoToast.tsx'
 
@@ -16,6 +20,8 @@ const DESKTOP_QUERY = '(min-width: 40rem)'
 export function App() {
   useGlobalShortcuts()
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
+  const pendingCount = usePendingCount()
+  useWarnBeforeUnload(pendingCount > 0)
 
   useEffect(() => {
     // Pede para o navegador nao limpar o banco local por pressao de espaco
@@ -30,20 +36,20 @@ export function App() {
     }
   }, [])
 
+  // Liga os gatilhos automaticos de sync (docs secao 6.1): ao abrir, ao
+  // focar, a cada 60s visivel, 3s apos editar, ao voltar a conexao.
+  useEffect(() => setupSyncTriggers(), [])
+
   return (
     <DndWorkspace>
       <div className="flex min-h-dvh flex-col gap-3 p-3 sm:gap-4 sm:p-4">
-        <header className="flex shrink-0 items-center justify-between gap-3">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-2">
           <h1 className="text-[13px] font-semibold tracking-tight">
             Matriz de Eisenhower
           </h1>
-          {/*
-           * O indicador de sincronizacao mora aqui (fase 2). Enquanto nao houver
-           * sincronizacao de verdade, nao ha indicador: nunca mostrar
-           * "sincronizado" sem ter verificado (docs secao 4.9).
-           */}
           <div className="flex shrink-0 items-center gap-1.5">
-            <BackupPanel />
+            <SyncIndicator />
+            <SettingsPanel />
             <ThemeToggle />
           </div>
         </header>

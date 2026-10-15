@@ -12,10 +12,11 @@ comandos, convenções e decisões de arquitetura.
 | `npm run lint` | oxlint com regras que usam tipos, zero avisos tolerados |
 | `npm run typecheck` | `tsc --build --force` (ver nota abaixo — **não** `tsc --noEmit`) |
 | `npm test` | Vitest (domínio, banco, tema, contraste dos tokens) |
+| `npm run test:gas` | Harness Node (`apps-script/test/harness.mjs`) que simula os globais do Apps Script e roda `Code.gs` de verdade, sem precisar publicar nada |
 | `npm run build` | Build de produção em `dist/` |
 | `npm run preview` | Serve o `dist/` em `http://localhost:4173/matriz-eisenhower/` |
 | `npx playwright test` | 3 fluxos essenciais ponta a ponta — precisa de `npm run build` antes (roda contra o build de produção via `npm run preview`) |
-| `npm run check` | Lint + tipos + testes + build. É o que o CI roda (o Playwright roda como passo à parte no CI, depois do build). |
+| `npm run check` | Lint + tipos + testes + `test:gas` + build. É o que o CI roda (o Playwright roda como passo à parte no CI, depois do build). |
 
 ## Arquitetura
 
@@ -28,8 +29,13 @@ Script) é a cópia compartilhada entre aparelhos. Nada de VPS, túnel ou proxy.
 src/
   domain/   regras puras, sem React, sem banco, sem rede — tudo com teste
   db/       Dexie: schema, migrations, repositório de tarefas e backup
+            changeSignal.ts avisa o sync de uma escrita sem o db conhecer o sync
   capture.ts  porta única de captura (docs seção 8), usada pela caixa de entrada
-  sync/     ciclo pull -> merge -> push -> verificação      (fase 2)
+  sync/     ciclo pull -> merge -> push -> verificação
+    client.ts    chamada HTTP de baixo nível (classifica toda falha num motivo)
+    engine.ts     o ciclo, o store de status, de-duplicação de chamadas concorrentes
+    triggers.ts   quando sincronizar (abrir, foco, 60s, debounce, online, botão)
+    config.ts     URL/token — só em localStorage
   ui/
     components/  componentes de apresentação
     dnd/         DndContext único (desktop + caixa de entrada), ids de contentor
@@ -37,11 +43,12 @@ src/
     shortcuts/   atalhos de teclado globais
     undo/        store do toast "Desfazer" (um nível, 6s)
     help/        store do painel de ajuda (atalho `?`)
-    hooks/       hooks genéricos (useMediaQuery, useNowTick, useTheme)
+    hooks/       hooks genéricos (useMediaQuery, useNowTick, useTheme, useWarnBeforeUnload)
   lib/      utilitários genéricos
   styles/   tokens de design e CSS global
 e2e/        Playwright — 3 fluxos essenciais (docs seção 9)
-apps-script/  backend no Google Apps Script                 (fase 2)
+apps-script/  backend no Google Apps Script (Code.gs + README.md de publicação)
+  test/       harness Node que simula os globais do Apps Script, sem publicar nada
 ```
 
 Regra de ouro: **toda regra de domínio é função pura em `src/domain`**. A UI e o
@@ -263,13 +270,13 @@ ela saiu.
 ### Atalhos de teclado — só os que já têm para onde ir
 
 `src/ui/shortcuts/useGlobalShortcuts.ts` implementa `N`, as setas, `1`-`4`,
-`0`, `Ctrl+Z` e `?` (docs seção 5.6). **De propósito, não implementa** `Enter`
-("abrir o detalhe"), `T` ("abrir a triagem") nem `S` ("sincronizar agora"):
-os três têm para onde ir só nas fases 2 e 3 (painel de detalhe, modo
-triagem, cliente de sync). Amarrar uma tecla a uma funcionalidade que ainda
-não existe seria pior do que não ter o atalho — o painel de ajuda (`?`) só
-lista os que funcionam de verdade agora; atualize a lista junto quando cada
-funcionalidade chegar.
+`0`, `Ctrl+Z`, `?` e, desde a fase 2, `S` ("sincronizar agora" —
+`runSync()`). **De propósito, ainda não implementa** `Enter` ("abrir o
+detalhe") nem `T` ("abrir a triagem"): os dois só têm para onde ir na fase 3
+(painel de detalhe, modo triagem). Amarrar uma tecla a uma funcionalidade
+que ainda não existe seria pior do que não ter o atalho — o painel de ajuda
+(`?`) só lista os que funcionam de verdade agora; atualize a lista junto
+quando cada funcionalidade chegar.
 
 `Espaço` para concluir **não tem código no atalho global** — de propósito. A
 navegação por seta leva o foco ao checkbox da tarefa (`data-task-anchor`), e
@@ -323,14 +330,114 @@ montadas (ver o bug do dnd-kit acima); continua assim mesmo depois do
 desktop) e não há necessidade de reescrever os testes já escritos, mas não é
 mais estritamente obrigatório para evitar duplicata de DOM.
 
+### Sincronização (fase 2) — checksum canônico, mesclagem pura, verificação por releitura
+
+**Checksum bit-a-bit idêntico nos dois lados é a peça que faz "Confirmado"
+significar algo de verdade.** `src/domain/checksum.ts` (WebCrypto) e
+`apps-script/Code.gs` (`Utilities.computeDigest`) implementam a **mesma**
+canonicalização — chaves de objeto em ordem alfabética, arrays ordenados por
+`id`, sem espaço, `undefined` tratado como ausente — porque qualquer
+divergência mínima faz os dois calcularem hashes diferentes para o mesmo
+conteúdo e o app nunca mais confirmaria nada. Verificado três vezes
+independentes antes de escrever `Code.gs` (um truque de asserção no Vitest
+para extrair o JSON canônico, `shasum -a 256` na linha de comando, e um
+script Node replicando o JS ao estilo Apps Script) e depois embutido como
+fixture fixo (`FIXTURE_HASH`) nos dois lados — `testChecksum()` no `Code.gs`
+loga "✓ Bate"/"✗ NÃO bate" contra o mesmo hash que `checksum.test.ts` verifica.
+**Se um dos dois lados mudar a canonicalização, o outro precisa mudar igual
+— nunca só um.**
+
+**Mesclagem (`src/domain/merge.ts`) é pura e cobre os 6 cenários do
+documento** (edição em dois aparelhos, exclusão vs. edição, empate,
+ressurreição, idempotência, comutatividade) mais a limpeza de tombstones
+com mais de 30 dias. `Person` não tem campo `device` (ao contrário de
+`Task`/`TaskEvent`) — o desempate de empate usa `id` em vez de nome do
+aparelho só para essa entidade.
+
+**Ciclo do motor (`src/sync/engine.ts`):** pull → mesclar localmente com o
+que veio do servidor → se o checksum da mesclagem já bate com o do pull, não
+há nada para empurrar (aplica local e confirma); senão, push com
+`baseRevision` → **rele o servidor de novo e recalcula o checksum a partir
+dessa releitura**, comparando contra o checksum que o cliente pretendia
+gravar — só então marca "Confirmado" e limpa as pendências. Nunca confia só
+na resposta do próprio push. Conflito (`baseRevision` desatualizado) tenta
+de novo desde o pull, até 3 vezes.
+
+**`src/db/changeSignal.ts` existe só para preservar a dependência num
+sentido só:** `src/db` não pode importar nada de `src/sync` (o banco não
+sabe que sincronização existe), mas toda mutação precisa avisar "algo
+mudou" para o debounce de 3s do `src/sync/triggers.ts` disparar. A solução é
+um pub/sub mínimo (`notifyLocalWrite`/`onLocalWrite`) que mora em `src/db` e
+não conhece `src/sync` — é `src/sync` que se inscreve nele, nunca o
+contrário.
+
+**Contador de pendências (`src/db/metaRepo.ts`):** toda função de mutação em
+`tasksRepo.ts` chama `markPendingInTx` **dentro da mesma transação** que
+grava a tarefa e o evento — a marca de pendência nunca fica fora de sincronia
+com o dado que ela descreve. Só `src/sync/engine.ts` limpa (`clearPending`),
+e só depois da verificação por releitura acima — nunca ao simplesmente
+enviar.
+
+**Harness de teste do Apps Script sem publicar nada
+(`apps-script/test/harness.mjs`):** `Code.gs` corre em V8 do jeito que o
+Google expõe (`DriveApp`, `PropertiesService`, `LockService`,
+`Utilities`, `ContentService`, `Logger` como globais, não módulos). O
+harness usa `node:vm` para rodar o código **de verdade** do `Code.gs` com
+esses globais simulados em memória (um Drive e um PropertiesService falsos,
+mas com a mesma interface). 16 cenários (auth, conflito, encolhimento,
+rotação de backup, paridade de checksum) passaram de primeira — ao
+contrário da fase 1c (que teve 2 bugs reais), o desenho cuidadoso de
+antemão (schema Zod validando a resposta de cada ação, revisão testada
+sozinha) não deixou bug nenhum para o teste manual achar depois.
+
+**Lição de fidelidade de teste-duplo, encontrada no `engine.test.ts` e
+repetida no Playwright de sync:** um servidor falso que *reimplementa* o
+cálculo de checksum em vez de *reusar* `computeChecksum` real sempre acaba
+divergindo num detalhe (a primeira versão ordenava os arrays por `id` mas
+não as chaves do objeto no nível raiz) — e o sintoma não é um erro óbvio,
+é o ciclo inteiro de sync nunca achar o caminho rápido "nada para enviar",
+forçando sempre push+verificação mesmo quando os dados são idênticos.
+`e2e/sync-cycle.spec.ts` importa `computeChecksum` e os schemas Zod de
+`src/domain/` direto (os aliases `@/*` resolvem em tempo de execução do
+Playwright, não só no typecheck — `tsconfig.node.json` inclui `e2e/**/*.ts`)
+em vez de reimplementar a lógica — a mesma lição, aplicada de novo.
+
+**Settings dividida em três arquivos pelo limite de 300 linhas do lint**
+(`max-lines`): `SettingsPanel.tsx` é só a casca do diálogo (nome do
+aparelho, tema), `ConnectionSettings.tsx` é a seção de sincronização (URL,
+token, "Testar conexão") e `BackupSettings.tsx` é a seção de backup
+(lógica movida verbatim do antigo `BackupPanel.tsx`, que este painel
+substitui por completo).
+
+### Playwright — fluxo de sync com servidor falso dentro do próprio teste
+
+`e2e/sync-cycle.spec.ts` intercepta `https://script.google.com/**` via
+`page.route()` **antes** da requisição saír do navegador — nenhuma URL ou
+token real entra no repositório, e o domínio nunca é contactado de
+verdade. O servidor falso (estado em closure: `revision` + `data`) mora no
+processo do **teste** (Node), não no navegador — é por isso que pode
+importar `computeChecksum`/os schemas Zod da aplicação direto, para
+fidelidade total com o cálculo real (ver lição acima).
+
+`getByLabel('Token')` sem `{ exact: true }` resolve **dois** elementos: o
+próprio campo e o botão "Mostrar token" (o `aria-label` contém a palavra
+"token" como substring) — qualquer label futura que seja substring de um
+`aria-label` de botão vizinho tem o mesmo risco; prefira `exact: true` para
+labels de uma palavra só.
+
 ## Segurança (o repositório é público)
 
 - **Nenhum segredo no código, nos testes ou no histórico do git.**
 - URL e token do Apps Script são digitados no aparelho e vivem só no
   `localStorage`. Nunca no repositório, nunca na URL de uma requisição, nunca
   em log ou mensagem de erro — redija explicitamente ao tratar erro.
-- Testes usam `https://example.invalid/exec` e tokens falsos.
+- Testes usam URLs e tokens falsos (`https://script.google.com/macros/s/teste-e2e/exec`
+  no Playwright — hostname real do Apps Script, caminho inventado, nunca
+  contactado de verdade porque `page.route()` intercepta antes da rede).
 - O CI não tem segredo além do `GITHUB_TOKEN` padrão do Pages.
+- `apps-script/README.md` tem o aviso de que **reimplantar** (não criar uma
+  implantação nova) é o único jeito de manter a mesma URL depois de editar
+  `Code.gs`.
 
 ## Publicação
 
@@ -362,25 +469,28 @@ o Pages realmente publicou a versão nova.
 
 ## Estado atual
 
-Fase 1c concluída: arrastar e soltar (entre quadrantes, reordenar dentro do
-quadrante, da caixa de entrada para um quadrante), atalhos de teclado
-(`N`, setas, `1`-`4`, `0`, `Ctrl+Z`, `?`), caixa de entrada completa (captura
-com `#tag`, colagem multilinha, origem e tempo parado, destaque após 24h),
-desfazer com toast de 6s, menu "Mover para" (Radix `DropdownMenu`), layout
-mobile dedicado (mini matriz seletora, folha de caixa de entrada, barra de
-captura fixa, alvos de 48px), exportar/importar backup com pré-visualização,
-3 testes Playwright do fluxo "adicionar e mover tarefa" no CI.
+Fase 2 concluída: backend em Apps Script (`apps-script/Code.gs` — ping/pull/push,
+token com comparação de tempo fixo, `LockService` em volta do push com
+conferência de `baseRevision` dentro do lock, rotação de backup `bak1`/`bak2`,
+proteção contra encolhimento drástico sem `allowShrink`) com README de
+publicação/reimplantação e harness de teste próprio (16 cenários, sem
+publicar nada de verdade); mesclagem pura com os 6 cenários exigidos +
+limpeza de tombstone de 30 dias; motor de sync com o ciclo
+pull → mesclar → push → **releitura e verificação de checksum** antes de
+confirmar, até 3 tentativas em conflito; gatilhos automáticos (abrir, foco,
+60s visível, 3s após editar, voltar a conexão) e manual (botão/atalho `S`);
+indicador sempre visível com os 5 estados e contador de pendências; tela de
+Configurações com URL/token (só em `localStorage`) e "Testar conexão";
+aviso ao fechar a aba com pendências; 3 testes Playwright do fluxo de sync
+contra um servidor simulado por interceptação de rota, no CI.
 
-Dois bugs reais de verdade encontrados e corrigidos nesta fase (detalhados
-acima): a zona soltável de um quadrante vazio media só 32px, e duas árvores
-de layout montadas ao mesmo tempo quebravam o arrastar para "Fazer"
-especificamente. Nenhum dos dois apareceu nos testes unitários/integração —
-só o teste manual no navegador (o primeiro) e o Playwright (o segundo)
-pegaram. Também corrigido: o typecheck não checava nenhum arquivo desde a
-fase 1a (`tsc --noEmit` contra um `tsconfig.json` de só-referências não
-segue as referências — precisa de `tsc --build`).
+Nenhum bug real encontrado nesta fase pelo teste automatizado ou manual —
+diferente da 1c (que teve 2). A única correção foi no próprio teste: um
+checksum reimplementado no servidor falso do Playwright que divergia do
+real num detalhe (ver "Lição de fidelidade de teste-duplo" acima), corrigido
+reusando `computeChecksum` de verdade em vez de reescrevê-lo.
 
-Ainda não tem: Enter abre detalhe, T abre triagem, S sincroniza (todos sem
-destino até as fases 2 e 3), modo triagem, delegação com pessoas, histórico,
-PWA (manifest, service worker, share target), sincronização de verdade.
-Fases em `docs/prompt-matriz-eisenhower.md`, seção 11.
+Ainda não tem: Enter abre detalhe, T abre triagem (ambos sem destino até a
+fase 3), modo triagem, delegação com pessoas, histórico, PWA (manifest,
+service worker, share target). Fases em
+`docs/prompt-matriz-eisenhower.md`, seção 11.

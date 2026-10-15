@@ -7,7 +7,7 @@
  * com `.upgrade()` explicando a transformacao. Nunca editar uma versao ja
  * publicada - sempre acrescentar a proxima.
  */
-import DexieDB, { type EntityTable } from 'dexie'
+import DexieDB, { type EntityTable, type Table } from 'dexie'
 import type { Meta, Person, Task, TaskEvent } from '@/domain/schema.ts'
 
 export class MatrizDB extends DexieDB {
@@ -16,10 +16,12 @@ export class MatrizDB extends DexieDB {
   people!: EntityTable<Person, 'id'>
   /**
    * Linha unica, chave fora da tabela (Dexie out-of-line key: o indice `''`
-   * nao reserva um campo `id` dentro do objeto). Sempre lida e gravada pela
+   * nao reserva um campo `id` dentro do objeto, `Meta` nao tem essa
+   * propriedade). Por isso `Table<Meta, string>` em vez de `EntityTable`,
+   * que so serve para chave embutida no objeto. Sempre lida e gravada pela
    * chave fixa `LOCAL_META_KEY`.
    */
-  meta!: EntityTable<Meta>
+  meta!: Table<Meta, string>
 
   constructor(name: string) {
     super(name)

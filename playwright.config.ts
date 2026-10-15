@@ -2,8 +2,8 @@ import { defineConfig, devices } from '@playwright/test'
 
 /**
  * 3 fluxos essenciais (docs secao 9): adicionar e mover tarefa (fase 1c),
- * triagem da caixa de entrada (fase 3) e ciclo de sincronizacao contra um
- * script simulado (fase 2). So o primeiro existe por enquanto.
+ * ciclo de sincronizacao contra um script simulado (fase 2) e triagem da
+ * caixa de entrada (fase 3, ainda pendente).
  *
  * Roda contra o build de producao (`npm run build` + `npm run preview`),
  * nao o servidor de desenvolvimento - e o que o CI publica de verdade.

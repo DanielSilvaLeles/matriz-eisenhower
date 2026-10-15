@@ -6,12 +6,14 @@
  */
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { MatrizDB } from './schema.ts'
+import { getMeta } from './metaRepo.ts'
+import { LOCAL_META_KEY, MatrizDB } from './schema.ts'
 import {
   TaskNotFoundError,
   addTaskToInbox,
   addTaskToQuadrant,
   completeTaskById,
+  discardTask,
   moveTaskToQuadrant,
   reopenTaskById,
   reorderTaskPosition,
@@ -201,5 +203,42 @@ describe('reorderTaskPosition', () => {
     await expect(reorderTaskPosition(db, 'inexistente', 10)).rejects.toBeInstanceOf(
       TaskNotFoundError,
     )
+  })
+})
+
+describe('marcacao de pendencia (docs secao 6.3)', () => {
+  it('toda mutacao marca o id da tarefa como pendente', async () => {
+    const task = await addTaskToQuadrant(db, 'q1', 'Revisar PR')
+    expect((await getMeta(db)).pending_ids).toContain(task.id)
+
+    await clearViaDirectWrite()
+    await completeTaskById(db, task.id)
+    expect((await getMeta(db)).pending_ids).toContain(task.id)
+
+    await clearViaDirectWrite()
+    await reopenTaskById(db, task.id)
+    expect((await getMeta(db)).pending_ids).toContain(task.id)
+
+    await clearViaDirectWrite()
+    await moveTaskToQuadrant(db, task.id, 'q2')
+    expect((await getMeta(db)).pending_ids).toContain(task.id)
+
+    await clearViaDirectWrite()
+    await reorderTaskPosition(db, task.id, 42)
+    expect((await getMeta(db)).pending_ids).toContain(task.id)
+
+    async function clearViaDirectWrite() {
+      const meta = await getMeta(db)
+      await db.meta.put({ ...meta, pending_ids: [] }, LOCAL_META_KEY)
+    }
+  })
+
+  it('discardTask remove o id da pendencia, nao deixa pendencia fantasma', async () => {
+    const task = await addTaskToInbox(db, 'Vai ser desfeita', [], 'web')
+    expect((await getMeta(db)).pending_ids).toContain(task.id)
+
+    await discardTask(db, task.id)
+
+    expect((await getMeta(db)).pending_ids).not.toContain(task.id)
   })
 })

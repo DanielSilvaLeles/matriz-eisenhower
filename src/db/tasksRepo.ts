@@ -6,6 +6,12 @@
  * pura correspondente em src/domain/task.ts, e grava a tarefa e o evento
  * juntos. Se qualquer parte falhar, a transacao inteira desfaz - nunca fica
  * uma tarefa gravada sem o evento que a explica.
+ *
+ * Toda escrita tambem marca o id como pendente de confirmacao
+ * (`markPendingInTx`, dentro da mesma transacao - docs secao 6.3: "contador
+ * de alteracoes pendentes sempre visivel"). So o motor de sync
+ * (src/sync/) limpa essa marca, e so depois de reler e confirmar o
+ * checksum (docs secao 6.1, passos 4 e 5).
  */
 import { positionBetween } from '@/domain/position.ts'
 import type { QuadrantId } from '@/domain/quadrant.ts'
@@ -17,7 +23,9 @@ import {
   reopenTask,
   reorderTask,
 } from '@/domain/task.ts'
+import { notifyLocalWrite } from './changeSignal.ts'
 import { getDeviceName } from './device.ts'
+import { markPendingInTx, unmarkPendingInTx } from './metaRepo.ts'
 import type { MatrizDB } from './schema.ts'
 
 function newId(): string {
@@ -61,9 +69,11 @@ async function lastPosition(db: MatrizDB, quadrant: QuadrantId | null): Promise<
  * (fase 3), bem diferente desta.
  */
 export function discardTask(db: MatrizDB, taskId: string): Promise<void> {
-  return db.transaction('rw', db.tasks, db.task_events, async () => {
+  notifyLocalWrite()
+  return db.transaction('rw', db.tasks, db.task_events, db.meta, async () => {
     await db.task_events.where('task_id').equals(taskId).delete()
     await db.tasks.delete(taskId)
+    await unmarkPendingInTx(db, taskId)
   })
 }
 
@@ -83,7 +93,8 @@ export function addTaskToQuadrant(
   title: string,
   device: string = getDeviceName(),
 ): Promise<Task> {
-  return db.transaction('rw', db.tasks, db.task_events, async () => {
+  notifyLocalWrite()
+  return db.transaction('rw', db.tasks, db.task_events, db.meta, async () => {
     const position = positionBetween(await lastPosition(db, quadrant), null)
     const now = nowISO()
 
@@ -94,6 +105,7 @@ export function addTaskToQuadrant(
 
     await db.tasks.add(task)
     await db.task_events.add(event)
+    await markPendingInTx(db, task.id)
     return task
   })
 }
@@ -110,7 +122,8 @@ export function addTaskToInbox(
   source: TaskSource,
   device: string = getDeviceName(),
 ): Promise<Task> {
-  return db.transaction('rw', db.tasks, db.task_events, async () => {
+  notifyLocalWrite()
+  return db.transaction('rw', db.tasks, db.task_events, db.meta, async () => {
     const position = positionBetween(await lastPosition(db, null), null)
     const now = nowISO()
 
@@ -130,6 +143,7 @@ export function addTaskToInbox(
 
     await db.tasks.add(task)
     await db.task_events.add(event)
+    await markPendingInTx(db, task.id)
     return task
   })
 }
@@ -146,11 +160,13 @@ export function completeTaskById(
   taskId: string,
   device: string = getDeviceName(),
 ): Promise<Task> {
-  return db.transaction('rw', db.tasks, db.task_events, async () => {
+  notifyLocalWrite()
+  return db.transaction('rw', db.tasks, db.task_events, db.meta, async () => {
     const existing = await getTaskOrThrow(db, taskId)
     const { task, event } = completeTask(existing, { eventId: newId(), device }, nowISO())
     await db.tasks.put(task)
     await db.task_events.add(event)
+    await markPendingInTx(db, task.id)
     return task
   })
 }
@@ -161,11 +177,13 @@ export function reopenTaskById(
   taskId: string,
   device: string = getDeviceName(),
 ): Promise<Task> {
-  return db.transaction('rw', db.tasks, db.task_events, async () => {
+  notifyLocalWrite()
+  return db.transaction('rw', db.tasks, db.task_events, db.meta, async () => {
     const existing = await getTaskOrThrow(db, taskId)
     const { task, event } = reopenTask(existing, { eventId: newId(), device }, nowISO())
     await db.tasks.put(task)
     await db.task_events.add(event)
+    await markPendingInTx(db, task.id)
     return task
   })
 }
@@ -181,7 +199,8 @@ export function moveTaskToQuadrant(
   toQuadrant: QuadrantId | null,
   device: string = getDeviceName(),
 ): Promise<Task> {
-  return db.transaction('rw', db.tasks, db.task_events, async () => {
+  notifyLocalWrite()
+  return db.transaction('rw', db.tasks, db.task_events, db.meta, async () => {
     const existing = await getTaskOrThrow(db, taskId)
     const position = positionBetween(await lastPosition(db, toQuadrant), null)
     const { task, event } = moveTask(
@@ -193,6 +212,7 @@ export function moveTaskToQuadrant(
     )
     await db.tasks.put(task)
     await db.task_events.add(event)
+    await markPendingInTx(db, task.id)
     return task
   })
 }
@@ -211,7 +231,8 @@ export function restoreTaskPlacement(
   position: number,
   device: string = getDeviceName(),
 ): Promise<Task> {
-  return db.transaction('rw', db.tasks, db.task_events, async () => {
+  notifyLocalWrite()
+  return db.transaction('rw', db.tasks, db.task_events, db.meta, async () => {
     const existing = await getTaskOrThrow(db, taskId)
     const { task, event } = moveTask(
       existing,
@@ -222,6 +243,7 @@ export function restoreTaskPlacement(
     )
     await db.tasks.put(task)
     await db.task_events.add(event)
+    await markPendingInTx(db, task.id)
     return task
   })
 }
@@ -236,10 +258,12 @@ export function reorderTaskPosition(
   position: number,
   device: string = getDeviceName(),
 ): Promise<Task> {
-  return db.transaction('rw', db.tasks, async () => {
+  notifyLocalWrite()
+  return db.transaction('rw', db.tasks, db.meta, async () => {
     const existing = await getTaskOrThrow(db, taskId)
     const task = reorderTask(existing, position, device, nowISO())
     await db.tasks.put(task)
+    await markPendingInTx(db, task.id)
     return task
   })
 }

@@ -6,7 +6,9 @@
  */
 import type { Backup, BackupContents } from '@/domain/backup.ts'
 import { buildBackup } from '@/domain/backup.ts'
-import type { MatrizDB } from './schema.ts'
+import { notifyLocalWrite } from './changeSignal.ts'
+import { getMeta } from './metaRepo.ts'
+import { LOCAL_META_KEY, type MatrizDB } from './schema.ts'
 
 export async function exportBackup(db: MatrizDB): Promise<Backup> {
   const [tasks, taskEvents, people] = await Promise.all([
@@ -38,14 +40,27 @@ export async function currentCounts(db: MatrizDB): Promise<ImportCounts> {
 /**
  * Substitui TODO o conteudo das tres tabelas pelo do backup, numa unica
  * transacao - ou importa tudo, ou (se algo falhar) nao muda nada.
+ *
+ * Marca toda tarefa importada como pendente: um backup pode vir de outro
+ * aparelho, de um momento diferente, ou estar restaurando depois de perder
+ * dados — nos tres casos o servidor pode nao ter esse estado ainda, entao o
+ * proximo sync tem que empurrar tudo (a mesclagem reconcilia certo com o
+ * que estiver no Drive, usando o `updated_at` que ja vem em cada tarefa).
  */
 export function applyBackup(db: MatrizDB, backup: Backup): Promise<void> {
-  return db.transaction('rw', db.tasks, db.task_events, db.people, async () => {
+  notifyLocalWrite()
+  return db.transaction('rw', db.tasks, db.task_events, db.people, db.meta, async () => {
     await Promise.all([db.tasks.clear(), db.task_events.clear(), db.people.clear()])
     await Promise.all([
       db.tasks.bulkAdd(backup.tasks),
       db.task_events.bulkAdd(backup.task_events),
       db.people.bulkAdd(backup.people),
     ])
+
+    const meta = await getMeta(db)
+    await db.meta.put(
+      { ...meta, pending_ids: backup.tasks.map((task) => task.id) },
+      LOCAL_META_KEY,
+    )
   })
 }

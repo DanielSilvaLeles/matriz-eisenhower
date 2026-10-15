@@ -1,9 +1,10 @@
 /**
  * Atalhos de teclado globais (docs secao 5.6). So os que ja tem para onde
- * ir nesta fase: `Enter` (abrir detalhe), `T` (triagem) e `S` (sincronizar)
- * ficam de fora porque o painel de detalhe, o modo triagem e a sincronizacao
- * ainda nao existem (fases 2 e 3) - amarrar uma tecla a uma funcionalidade
- * que nao faz nada seria pior do que nao ter o atalho.
+ * ir nesta fase: `Enter` (abrir detalhe) e `T` (triagem) ficam de fora
+ * porque o painel de detalhe e o modo triagem ainda nao existem (fase 3) -
+ * amarrar uma tecla a uma funcionalidade que nao faz nada seria pior do que
+ * nao ter o atalho. `S` (sincronizar) entrou nesta fase, agora que a
+ * sincronizacao existe.
  *
  * `Espaco` para concluir nao tem codigo aqui: a navegacao por seta leva o
  * foco ao proprio checkbox (ver data-task-anchor em TaskRow), e o navegador
@@ -15,6 +16,7 @@ import { getDB } from '@/db/schema.ts'
 import { INBOX_CAPTURE_FIELD_ID } from '@/ui/components/CaptureField.tsx'
 import type { QuadrantId } from '@/domain/quadrant.ts'
 import { moveTaskWithUndo } from '@/ui/actions/moveTaskWithUndo.ts'
+import { runSync } from '@/sync/engine.ts'
 import { helpOpenStore } from '@/ui/help/store.ts'
 import { undoPending } from '@/ui/undo/store.ts'
 
@@ -108,6 +110,14 @@ export function useGlobalShortcuts(): void {
       if (event.key === '?') {
         event.preventDefault()
         helpOpenStore.set(true)
+        return
+      }
+
+      if (event.key === 's' || event.key === 'S') {
+        event.preventDefault()
+        runSync().catch((error: unknown) => {
+          console.error('Falha ao sincronizar', error)
+        })
         return
       }
 

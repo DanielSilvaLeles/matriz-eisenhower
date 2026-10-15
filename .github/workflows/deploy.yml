@@ -42,6 +42,12 @@ jobs:
       - name: Testes
         run: npm test
 
+      # apps-script/Code.gs nao roda no Vitest (nao e TypeScript) - este
+      # harness simula DriveApp/PropertiesService/LockService/Utilities em
+      # memoria e exercita o backend de verdade antes de publicar no Google.
+      - name: Testes do backend (Apps Script simulado)
+        run: npm run test:gas
+
       - name: Build
         run: npm run build
 

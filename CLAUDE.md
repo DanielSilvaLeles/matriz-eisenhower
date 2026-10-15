@@ -525,6 +525,53 @@ checkbox por tras dele precisa vir depois do `Escape`, senao
 `getByRole('checkbox', ...)` nao encontra nada (nao é "nao achou porque
 nao existe", é "nao achou porque esta fora da arvore de acessibilidade").
 
+### Bug real em produção: segundo item da triagem "não fazia nada"
+
+**Relatado pelo usuário**: triar o primeiro item da caixa de entrada
+funcionava, mas ao triar o segundo "ele sempre voltava, parecia que não
+tinha feito nada". Causa raiz: uma corrida entre o clique/tecla e a
+movimentação assíncrona no Dexie. `handleDigit` (`TriageOverlay.tsx`)
+capturava `current`, chamava `setPendingTask(task)` e disparava
+`moveTaskToQuadrant` (uma transação Dexie, não instantânea) - mas `mode`
+só mudava (para `'date'`/`'delegate'`, ou de volta para `'item'` via
+`finishStep`) **depois** que essa movimentação resolvia. Nesse intervalo,
+`mode` continuava `'item'` e `current` continuava apontando para o MESMO
+item (ele só sai de `inboxTasks` quando a escrita termina) - então nada
+impedia um segundo clique num botão de quadrante, ou uma segunda tecla
+`1`-`4`/`E`/`S`, de capturar o mesmo `current` outra vez e disparar uma
+**segunda** movimentação concorrente para o mesmo item. Como as duas
+transações do Dexie usam as mesmas tabelas, elas são serializadas - a
+segunda sempre vence por último - mas a sua resolução (`onDone`/
+`onNeedsFollowUp`) chegava **depois** e sobrescrevia o `mode`/
+`pendingTask` que a primeira tinha acabado de definir. Resultado visível:
+o passo que a primeira escolha deveria abrir nunca ficava visível (ou
+desaparecia na hora), e o item parecia "voltar" - típico de um duplo clique ou
+duplo toque de tecla por impaciência, já que os botões de destino não
+davam nenhum feedback imediato de "já registrei seu clique".
+
+**Correção:** `busy` (`pendingTask !== null`) agora é checado em TODOS os
+pontos de entrada que iniciam uma ação sobre o item atual - `handleDigit`,
+`handleHelp`, `handleEdit`, `handleSkip`, e o guard de teclado
+(`handleKeyDown`). Como `pendingTask` fica preenchido do início de
+`handleDigit` até `finishStep` (inclusive durante os passos de
+data/delegação), esse intervalo inteiro vira efetivamente "ocupado" -
+nenhuma segunda ação para o mesmo item consegue entrar enquanto a primeira
+não terminar. `TriageItemStep` ganhou a prop `busy` para desabilitar e
+esmaecer os botões nesse intervalo - não só fecha a corrida, também dá o
+feedback visual imediato que faltava (o clique "sumiu" sem reação
+nenhuma era exatamente a sensação de "não fez nada" que o usuário
+relatou).
+
+**Lacuna de teste descoberta junto:** nenhum teste (automatizado ou
+manual) tinha triado **dois** itens em sequência - todos os testes de
+`e2e/triage.spec.ts` paravam no primeiro. `e2e/triage.spec.ts` ganhou dois
+testes: um cobrindo o fluxo normal de dois itens em sequência (a lacuna de
+cobertura em si), e outro disparando duas teclas de destino em sequência
+sem esperar (`Promise.all` nos dois `page.keyboard.press`) para exercitar
+a trava diretamente - confirmado que esse segundo teste **falha** sem a
+correção (o item termina em dois quadrantes/nenhum lugar certo) e passa
+com ela.
+
 ### Triagem, detalhe e histórico (fase 3) — dois bugs reais encontrados
 
 **Bug real #1 — o botão "Mover" ficava invisível fora de uma `TaskRow`.**

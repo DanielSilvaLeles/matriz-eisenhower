@@ -81,6 +81,16 @@ export function TriageOverlay() {
   const current = inboxTasks.find((task) => !skipped.includes(task.id)) ?? inboxTasks[0]
   const done = Math.max(0, initialTotal - inboxTasks.length)
   const total = Math.max(initialTotal, inboxTasks.length)
+  // `pendingTask` fica preenchido do instante em que uma movimentacao
+  // comeca (handleDigit) até `finishStep` - inclusive durante os passos de
+  // data/delegacao, que dependem dele. Enquanto isso, mode ainda pode estar
+  // 'item' (a movimentacao e um ciclo assincrono do Dexie - ver CLAUDE.md);
+  // sem essa trava, um segundo clique/tecla nesse intervalo capturava o
+  // MESMO `current` (ainda nao saiu da caixa) e disparava uma segunda
+  // movimentacao concorrente, cuja resolucao (que chega depois) sobrescrevia
+  // o `mode`/`pendingTask` que a primeira tinha acabado de definir - o item
+  // "voltava" e parecia que a triagem nao tinha feito nada.
+  const busy = pendingTask !== null
 
   function finishStep(): void {
     setMode('item')
@@ -88,7 +98,7 @@ export function TriageOverlay() {
   }
 
   function handleDigit(quadrant: QuadrantId): void {
-    if (!current) return
+    if (!current || busy) return
     const task = current
     setPendingTask(task)
     sendToQuadrant(task, quadrant, setMode, finishStep).catch((error: unknown) => {
@@ -96,8 +106,23 @@ export function TriageOverlay() {
     })
   }
 
+  function handleHelp(): void {
+    if (busy) return
+    setMode('help')
+  }
+
+  function handleEdit(): void {
+    if (busy) return
+    setMode('edit')
+  }
+
+  function handleSkip(): void {
+    if (!current || busy) return
+    setSkipped((prev) => [...prev, current.id])
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
-    if (mode !== 'item' || !current || isEditableTarget(event.target)) return
+    if (mode !== 'item' || !current || busy || isEditableTarget(event.target)) return
 
     const digit = QUADRANT_BY_DIGIT[event.key]
     if (digit) {
@@ -109,13 +134,13 @@ export function TriageOverlay() {
     if (event.key === 'e' || event.key === 'E') {
       event.preventDefault()
       event.stopPropagation()
-      setMode('edit')
+      handleEdit()
       return
     }
     if (event.key === 's' || event.key === 'S') {
       event.preventDefault()
       event.stopPropagation()
-      setSkipped((prev) => [...prev, current.id])
+      handleSkip()
     }
   }
 
@@ -214,16 +239,11 @@ export function TriageOverlay() {
             ) : (
               <TriageItemStep
                 task={current}
+                busy={busy}
                 onSendToQuadrant={handleDigit}
-                onHelp={() => {
-                  setMode('help')
-                }}
-                onEdit={() => {
-                  setMode('edit')
-                }}
-                onSkip={() => {
-                  setSkipped((prev) => [...prev, current.id])
-                }}
+                onHelp={handleHelp}
+                onEdit={handleEdit}
+                onSkip={handleSkip}
               />
             )}
           </div>

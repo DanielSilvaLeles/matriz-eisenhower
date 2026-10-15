@@ -97,3 +97,68 @@ test('editar o titulo durante a triagem (tecla E)', async ({ page }) => {
   await page.keyboard.press('1')
   await expect(dialog.getByText('Caixa de entrada zerada!')).toBeVisible()
 })
+
+test('triagem de dois itens em sequencia: o segundo item avanca de verdade', async ({ page }) => {
+  // Regressao de um bug real relatado pelo usuario: triar o primeiro item
+  // funcionava, mas o segundo "parecia nao fazer nada" - o item continuava
+  // aparecendo. Causa raiz era uma corrida (ver CLAUDE.md, "Bug real:
+  // segundo item da triagem..."), mas nenhum teste cobria sequer o fluxo
+  // normal de DOIS itens - so um por vez. Este teste fecha essa lacuna.
+  const main = page.locator('main')
+  const captura = main.getByPlaceholder('Capturar uma ideia…')
+
+  await captura.fill('Primeiro item')
+  await captura.press('Enter')
+  await captura.fill('Segundo item')
+  await captura.press('Enter')
+
+  await page.locator('h1').click()
+  await page.keyboard.press('t')
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText('Primeiro item')).toBeVisible()
+  await dialog.getByText('Primeiro item').click()
+
+  // Fazer, sem passo extra.
+  await page.keyboard.press('1')
+  await expect(dialog.getByText('Segundo item')).toBeVisible()
+  await expect(dialog.getByText('1 de 2')).toBeVisible()
+
+  // Eliminar, sem passo extra.
+  await page.keyboard.press('4')
+  await expect(dialog.getByText('Caixa de entrada zerada!')).toBeVisible()
+  await expect(dialog.getByText('2 de 2')).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await expect(main.locator('section[aria-label^="Fazer"]').getByText('Primeiro item')).toBeVisible()
+  await expect(main.locator('section[aria-label^="Eliminar"]').getByText('Segundo item')).toBeVisible()
+  await expect(main.locator('[data-task-list="inbox"] [data-task-id]')).toHaveCount(0)
+})
+
+test('digitar dois destinos em sequencia para o mesmo item so move uma vez', async ({ page }) => {
+  // Mesma regressao acima, mas testando a trava diretamente: duas teclas
+  // de destino disparadas sem esperar a primeira resolver nao podem gerar
+  // duas movimentacoes concorrentes para o mesmo item - so a primeira vale,
+  // a segunda e ignorada enquanto o passo estiver "ocupado".
+  const main = page.locator('main')
+  const captura = main.getByPlaceholder('Capturar uma ideia…')
+
+  await captura.fill('Item unico')
+  await captura.press('Enter')
+
+  await page.locator('h1').click()
+  await page.keyboard.press('t')
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText('Item unico')).toBeVisible()
+  await dialog.getByText('Item unico').click()
+
+  await Promise.all([page.keyboard.press('1'), page.keyboard.press('4')])
+
+  await expect(dialog.getByText('Caixa de entrada zerada!')).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // Foi para exatamente UM quadrante - nunca os dois.
+  await expect(main.locator('section[aria-label^="Fazer"]').getByText('Item unico')).toBeVisible()
+  await expect(main.locator('section[aria-label^="Eliminar"]').getByText('Item unico')).toHaveCount(0)
+})

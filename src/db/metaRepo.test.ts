@@ -72,12 +72,12 @@ describe('unmarkPendingInTx', () => {
 })
 
 describe('clearPending', () => {
-  it('zera os pendentes e registra revisao e checksum confirmados', async () => {
+  it('zera os pendentes confirmados e registra revisao e checksum', async () => {
     await db.transaction('rw', db.meta, async () => {
       await markPendingInTx(db, 'task-1')
     })
 
-    await clearPending(db, 5, 'abc123')
+    await clearPending(db, 5, 'abc123', ['task-1'])
 
     const meta = await getMeta(db)
     expect(meta.pending_ids).toEqual([])
@@ -87,8 +87,27 @@ describe('clearPending', () => {
 
   it('preserva o nome do aparelho ja configurado', async () => {
     const before = await getMeta(db)
-    await clearPending(db, 1, 'x')
+    await clearPending(db, 1, 'x', [])
     const after = await getMeta(db)
     expect(after.device_name).toBe(before.device_name)
+  })
+
+  it('nao apaga um id marcado pendente DEPOIS do snapshot que este ciclo confirmou', async () => {
+    // Simula o ciclo de sync: `task-1` estava pendente quando o ciclo leu o
+    // snapshot (e por isso esta em `confirmedIds`), mas `task-2` so foi
+    // marcada pendente DEPOIS - uma edicao feita enquanto o ciclo estava em
+    // voo (docs secao 6.3). `clearPending` so pode confirmar o que leu.
+    await db.transaction('rw', db.meta, async () => {
+      await markPendingInTx(db, 'task-1')
+    })
+
+    await db.transaction('rw', db.meta, async () => {
+      await markPendingInTx(db, 'task-2')
+    })
+
+    await clearPending(db, 5, 'abc123', ['task-1'])
+
+    const meta = await getMeta(db)
+    expect(meta.pending_ids).toEqual(['task-2'])
   })
 })

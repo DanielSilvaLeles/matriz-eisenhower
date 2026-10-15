@@ -100,7 +100,7 @@ async function runSyncInternal(): Promise<void> {
       // empurrar (docs secao 6.1, passo 3). Ainda assim aplica local (pode
       // ter trazido mudanca de outro aparelho) e confirma.
       await applyMergedState(db, merged)
-      await clearPending(db, pulled.revision, pulled.checksum)
+      await clearPending(db, pulled.revision, pulled.checksum, local.pendingIds)
       syncStatusStore.set({
         kind: 'confirmed',
         at: now,
@@ -144,7 +144,7 @@ async function runSyncInternal(): Promise<void> {
     }
 
     await applyMergedState(db, merged)
-    await clearPending(db, pushed.revision, pushed.checksum)
+    await clearPending(db, pushed.revision, pushed.checksum, local.pendingIds)
     syncStatusStore.set({
       kind: 'confirmed',
       at: now,

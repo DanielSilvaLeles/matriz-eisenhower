@@ -47,25 +47,40 @@ export async function unmarkPendingInTx(db: MatrizDB, taskId: string): Promise<v
 }
 
 /**
- * Limpa a pendencia e registra a revisao/checksum confirmados - so depois
- * da releitura e comparacao de checksum (docs secao 6.1, passo 4 e 5).
- * Nao limpa dentro de uma transacao com a escrita de tarefas, porque e
- * chamada pelo motor de sync depois de todo o ciclo pull-mesclar-push-
- * reler terminar, nao durante uma unica escrita local.
+ * Limpa SO os ids que este ciclo de sync realmente confirmou - nunca a
+ * lista inteira de pendencias. `confirmedIds` e o `pending_ids` de quando o
+ * ciclo começou (lido no mesmo instante de `readLocalState`, em
+ * `src/sync/engine.ts`): tudo que foi marcado pendente DEPOIS desse
+ * instante (uma edição feita enquanto o ciclo estava em voo) não foi
+ * sincronizado ainda e tem que continuar aparecendo como pendente -
+ * limpar a lista inteira aqui apagaria essa marca por engano, fazendo o
+ * contador mentir que está tudo confirmado quando não está (docs secao
+ * 6.3: "o estado da sincronização é sempre visível e honesto").
+ *
+ * Dentro de uma transação (leitura + escrita juntas): sem isso, uma
+ * `markPendingInTx` de outra escrita concorrente podia acontecer BEM no
+ * meio do intervalo entre o `getMeta` e o `put` daqui, e o `put` sobrescrevia
+ * essa marca nova com um valor calculado a partir de uma leitura já
+ * desatualizada - o mesmo tipo de corrida que motivou o `bulkPut` em
+ * `applyMergedState`.
  */
 export async function clearPending(
   db: MatrizDB,
   confirmedRevision: number,
   confirmedChecksum: string,
+  confirmedIds: readonly string[],
 ): Promise<void> {
-  const current = await getMeta(db)
-  await db.meta.put(
-    {
-      ...current,
-      pending_ids: [],
-      last_confirmed_revision: confirmedRevision,
-      last_confirmed_checksum: confirmedChecksum,
-    },
-    LOCAL_META_KEY,
-  )
+  const confirmedSet = new Set(confirmedIds)
+  await db.transaction('rw', db.meta, async () => {
+    const current = await getMeta(db)
+    await db.meta.put(
+      {
+        ...current,
+        pending_ids: current.pending_ids.filter((id) => !confirmedSet.has(id)),
+        last_confirmed_revision: confirmedRevision,
+        last_confirmed_checksum: confirmedChecksum,
+      },
+      LOCAL_META_KEY,
+    )
+  })
 }

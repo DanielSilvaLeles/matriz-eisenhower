@@ -9,6 +9,8 @@ import { syncRequestSchema, type SyncData, type SyncRequest, type SyncResponse }
 import { getSyncToken, getSyncUrl, setSyncToken, setSyncUrl } from './config.ts'
 import { runSync, syncStatusStore } from './engine.ts'
 
+function noop(): void {}
+
 function emptySyncData(): SyncData {
   return { schemaVersion: CURRENT_SCHEMA_VERSION, tasks: [], task_events: [], people: [] }
 }
@@ -217,6 +219,59 @@ describe('runSync', () => {
 
     expect(syncStatusStore.get()).toEqual({ kind: 'offline' })
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('tarefa criada DURANTE o ciclo (depois do snapshot local, no meio do push) nao e perdida', async () => {
+    // Regressao do bug real relatado em produção: `applyMergedState` usava
+    // `clear()+bulkAdd()` a partir de um snapshot tirado no inicio do ciclo
+    // (`readLocalState`). Uma escrita local que acontecesse DEPOIS desse
+    // snapshot mas ANTES do ciclo terminar (pull -> push -> verificacao, um
+    // tempo real de rede) sobrevivia no Dexie até o ciclo voltar e apagar a
+    // tabela inteira para regravar so o que estava no snapshot antigo -
+    // perdendo a tarefa nova sem aviso nenhum. Corrigido com `bulkPut`.
+    const server = createFakeServer('segredo')
+    let releasePush: () => void = noop
+    const pushGate = new Promise<void>((resolve) => {
+      releasePush = resolve
+    })
+    const fetchMock = vi.fn(async (url: string, init: { body: string }) => {
+      const body = syncRequestSchema.parse(JSON.parse(init.body))
+      if (body.action === 'push') await pushGate
+      return server.fetchMock(url, init)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    setSyncUrl(server.url)
+    setSyncToken('segredo')
+
+    await addTaskToQuadrant(db, 'q1', 'Tarefa original')
+
+    const syncPromise = runSync()
+
+    // Espera o ciclo chegar ao push (ou seja: ja leu o snapshot local em
+    // `readLocalState`, antes da escrita concorrente abaixo).
+    await vi.waitFor(() => {
+      expect(fetchMock.mock.calls.some((call) => {
+        const parsed = syncRequestSchema.parse(JSON.parse(call[1].body))
+        return parsed.action === 'push'
+      })).toBe(true)
+    })
+
+    // Escrita local DEPOIS do snapshot que o ciclo em voo ja leu - a mesma
+    // corrida relatada em produção.
+    await addTaskToQuadrant(db, 'q2', 'Tarefa criada durante o ciclo')
+
+    releasePush()
+    await syncPromise
+
+    const titles = (await db.tasks.toArray()).map((task) => task.title)
+    expect(titles).toContain('Tarefa original')
+    expect(titles).toContain('Tarefa criada durante o ciclo')
+
+    // A tarefa concorrente nao foi sincronizada por este ciclo (nao estava
+    // no snapshot) - continua pendente para o proximo ciclo pegar, em vez
+    // de o contador mentir que ja esta tudo confirmado.
+    const meta = await getMeta(db)
+    expect(meta.pending_ids).toHaveLength(1)
   })
 
   it('duas chamadas simultaneas de runSync fazem so um ciclo', async () => {

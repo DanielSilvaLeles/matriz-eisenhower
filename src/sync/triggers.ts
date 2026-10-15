@@ -1,17 +1,28 @@
 /**
  * Quando sincronizar (docs secao 6.1): ao abrir o app, ao voltar o foco
- * para a aba, a cada 60s com o app visivel, 3s depois da ultima edicao
+ * para a aba, a cada hora com o app visivel, 3s depois da ultima edicao
  * (debounce), ao voltar a conexao, e ao clicar em "Sincronizar agora"
  * (pula o debounce e o intervalo - essa chamada e feita direto via
  * `runSync()`, nao por aqui).
  *
  * `onLocalWrite` (src/db/changeSignal.ts) e quem avisa "algo mudou" sem o
  * banco precisar saber que a sincronizacao existe.
+ *
+ * **O intervalo era 60s, pedido explicito do usuario para espaçar depois de
+ * um susto de dado perdido** (ver CLAUDE.md, "Bug real: perda de tarefa
+ * durante o ciclo de sync") - a causa raiz era um bug real no motor
+ * (`applyMergedState` destrutivo), ja corrigido, mas sincronizar a cada
+ * minuto inteiro ainda era mais do que o necessario para um app de um
+ * usuario so (docs secao 6.1 so pede "periodicamente", sem numero fixo).
+ * Os outros gatilhos (abrir, foco, 3s apos editar, reconexao, botao/atalho
+ * `S`) continuam - sao disparados por evento, nao por sondagem as ciegas,
+ * e cobrem o caso comum de "acabei de mudar algo" sem esperar a hora
+ * inteira.
  */
 import { onLocalWrite } from '@/db/changeSignal.ts'
 import { runSync, syncStatusStore } from './engine.ts'
 
-const INTERVAL_MS = 60_000
+const INTERVAL_MS = 3_600_000
 const DEBOUNCE_MS = 3_000
 
 function fireAndForget(): void {

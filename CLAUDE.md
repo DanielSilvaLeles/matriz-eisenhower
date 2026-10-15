@@ -439,6 +439,61 @@ próprio campo e o botão "Mostrar token" (o `aria-label` contém a palavra
 `aria-label` de botão vizinho tem o mesmo risco; prefira `exact: true` para
 labels de uma palavra só.
 
+### Bug real em produção: tarefa perdida durante um ciclo de sync
+
+**Relatado pelo usuário já em uso real, depois da fase 5**: uma tarefa
+adicionada desapareceu, suspeita de ter acontecido durante uma
+sincronização. Causa raiz confirmada: `applyMergedState`
+(`src/db/syncRepo.ts`) gravava o estado mesclado com `clear()` seguido de
+`bulkAdd()` nas três tabelas. `readLocalState` tira um retrato do banco **no
+início** do ciclo (`pull → mesclar → push → reler e verificar`, um tempo
+real de rede, não instantâneo); se a pessoa criasse ou editasse uma tarefa
+enquanto esse ciclo estava em voo, essa escrita gravava no Dexie na hora
+(local-first) mas não entrava no `merged` que esse ciclo específico estava
+prestes a aplicar. Quando o ciclo terminava e chamava `applyMergedState`, o
+`clear()` apagava a tabela inteira — inclusive a tarefa nova, que nunca
+tinha sido lida pelo `pull`/`push` desse ciclo — antes de `bulkAdd()`
+regravar só o que estava no snapshot antigo. A tarefa desaparecia sem erro
+nenhum, porque do ponto de vista do motor de sync tudo tinha corrido bem.
+
+**Correção:** `bulkAdd()` → `bulkPut()` (grava por cima pelo id, nunca
+`clear()` antes) — qualquer id que não esteja em `merged` fica intocado, e
+uma escrita concorrente sobrevive para o próximo ciclo buscar. Mesmo
+raciocínio aplicado em `clearPending` (`src/db/metaRepo.ts`): limpar
+`pending_ids` **inteiro** ao confirmar tinha o mesmo problema (o contador de
+pendências mentiria "tudo confirmado" para uma tarefa marcada pendente
+*depois* do snapshot) — agora `clearPending` recebe os ids que o próprio
+ciclo confirmou (`confirmedIds`, capturados por `readLocalState` no MESMO
+instante/transação que o snapshot de tarefas) e só remove esses, por
+diferença de conjunto, dentro de uma transação Dexie (elimina também uma
+corrida de leitura-e-escrita entre `clearPending` e `markPendingInTx`).
+
+**Lição geral, a mesma do bug de `applyBackup` nunca ter sido escrito assim:**
+nunca usar `clear()`/substituição destrutiva para gravar de volta um
+snapshot que foi lido no **início** de uma operação assíncrona longa
+(ida-e-volta de rede) — qualquer escrita concorrente que aconteça nesse
+intervalo é perdida silenciosamente. `applyBackup` (`src/db/backup.ts`)
+continua usando `clear()+bulkAdd()` de propósito e não foi alterado: é uma
+ação síncrona, confirmada pelo próprio usuário com um clique num botão com
+sua própria UI de confirmação, não um ciclo de fundo silencioso — perfil de
+risco completamente diferente.
+
+**Pedido do usuário, atendido junto:** reduzir a frequência da sincronização
+automática por tempo (`src/sync/triggers.ts`), de 60s para 1 hora — o
+restante dos gatilhos (abrir, foco, 3s após editar, reconexão,
+botão/atalho `S`) continua, porque são disparados por evento, não por
+sondagem às ciegas. Note que o pedido original foi motivado pelo susto do
+bug acima, não pela frequência em si — o bug já estava corrigido antes dessa
+mudança, mas o espaçamento ficou de qualquer forma, por ser razoável para
+um app de um usuário só.
+
+Teste de regressão em `src/sync/engine.test.ts` ("tarefa criada DURANTE o
+ciclo..."): usa um `fetch` simulado que trava a chamada de `push` num
+gate controlado pelo teste, cria uma segunda tarefa enquanto o push está
+preso, solta o gate, e confirma que as duas tarefas sobrevivem e que a
+tarefa concorrente continua marcada pendente (não foi sincronizada por
+este ciclo — vai no próximo).
+
 ### Triagem, detalhe e histórico (fase 3) — dois bugs reais encontrados
 
 **Bug real #1 — o botão "Mover" ficava invisível fora de uma `TaskRow`.**
@@ -782,8 +837,10 @@ o Pages realmente publicou a versão nova.
   mais recente", então um relógio muito errado pode fazer uma edição antiga
   ganhar. Aceitável para um único usuário; o desempate por nome do aparelho
   garante ao menos que o resultado é determinístico.
-- **Sem tempo real.** Uma captura no celular chega ao PC no próximo ciclo (até
-  cerca de 1 minuto) ou ao clicar em "Sincronizar agora".
+- **Sem tempo real.** Uma captura no celular chega ao PC no próximo gatilho
+  automático (abrir o app, focar a aba, reconectar, ou até 1 hora depois
+  pelo relógio periódico) ou ao clicar em "Sincronizar agora"/atalho `S` —
+  esse é o jeito confiável de não esperar.
 - **O push envia o documento inteiro**, não um delta. Simples e suficiente nesta
   escala; se o arquivo crescer muito, reavaliar.
 - **Bundle de produção em ~663 KB (205 KB gzip)**, acima do aviso padrão de

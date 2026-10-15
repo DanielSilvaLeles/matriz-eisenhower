@@ -89,10 +89,47 @@ sem ganho nenhum.
 ### shadcn/ui
 
 `components.json` está configurado, mas **nenhum componente foi gerado ainda**.
-O primeiro `npx shadcn@latest add <componente>` vai precisar dos tokens de alias
-do shadcn (`--color-background`, `--color-primary`, `--color-ring`...) mapeados
+A fase 1b usou só HTML nativo (`<input type="checkbox">`, `<details>`) porque
+cada caso tinha suporte de teclado e leitor de tela de graça, sem precisar do
+Radix por trás do shadcn. O primeiro `npx shadcn@latest add <componente>` entra
+quando algo realmente exigir o comportamento do Radix (diálogo, combobox da
+delegação, popover — prováveis na fase 3) e vai precisar dos tokens de alias do
+shadcn (`--color-background`, `--color-primary`, `--color-ring`...) mapeados
 sobre os nossos em `tokens.css`. Adicione-os junto com o primeiro componente,
 não antes: token sem uso é abstração para o futuro, e o documento pede o simples.
+
+### Banco local (Dexie) e o repositório de tarefas
+
+`src/db/schema.ts` declara o schema v1 do Dexie, já no formato final da seção
+10 (com os dois ajustes do domínio). O índice composto `[quadrant+status]`
+existe porque "tarefas abertas deste quadrante" é a consulta que a tela
+inteira faz o tempo todo.
+
+`src/db/tasksRepo.ts` é a única camada que mistura o domínio puro com efeito
+colateral (Dexie, relógio, `crypto.randomUUID()`). Cada função é uma
+transação: tarefa e evento são gravados juntos, ou nenhum dos dois é. A
+camada de domínio (`src/domain/task.ts`) continua pura e testável sozinha,
+com `now`, `id` e `eventId` recebidos como parâmetros em vez de gerados
+internamente.
+
+`src/db/hooks.ts` usa `useLiveQuery` do `dexie-react-hooks`: toda escrita do
+repositório atualiza a tela sozinha, sem gerenciar estado React à mão. É o
+que faz "resposta instantânea" (docs seção 4.8) funcionar de graça.
+
+**Nome do aparelho:** até a tela de Configurações existir (fase 2),
+`src/db/device.ts` detecta um nome razoável ("celular" ou "computador") pelo
+user agent e guarda em `localStorage`. Cada mutação registra o aparelho que
+agiu em `tasks.device` — não o que criou a tarefa — porque é esse campo que a
+mesclagem de sync usa para desempatar (docs seção 6.2).
+
+**Armadilha de corrida encontrada ao testar no navegador:** o campo
+"Adicionar tarefa" limpava o valor só depois que a escrita no Dexie
+resolvia. Como a escrita é assíncrona, digitar rápido (ou um teste
+automatizado sem pausas) fazia o próximo título cair dentro do campo ainda
+não limpo, grudando dois títulos num só. A correção: `AddTaskField` limpa o
+campo **antes** de aguardar a gravação, e só devolve o texto se a gravação
+falhar. "Mantém o foco para a próxima" (docs seção 5.1) significa o campo
+pronto na hora, não só depois que o banco responder.
 
 ## Segurança (o repositório é público)
 
@@ -127,6 +164,13 @@ o Pages realmente publicou a versão nova.
 
 ## Estado atual
 
-Fase 1a concluída: esqueleto, tokens, tema, CI/CD e a grade 2x2 vazia no ar.
-Próxima: fase 1b (domínio, Dexie e a matriz funcional). Fases em
+Fase 1b concluída: domínio puro (quadrante, posição fracionária, mutações de
+tarefa), Dexie v1 com o repositório de tarefas, e a matriz funcional —
+adicionar, concluir, reabrir, contador e aviso de limite, "Concluídas hoje"
+colapsado, estado vazio por quadrante, `navigator.storage.persist()`.
+Testado manualmente no navegador (claro/escuro, 360px, estouro de limite,
+reload com persistência).
+
+Ainda não tem nesta fase: arrastar e soltar, atalhos de teclado, caixa de
+entrada, desfazer, backup. Tudo isso é a fase 1c. Fases em
 `docs/prompt-matriz-eisenhower.md`, seção 11.

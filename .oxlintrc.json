@@ -14,13 +14,16 @@
     "typescript/await-thenable": "error",
     "typescript/no-unnecessary-condition": "warn",
     "eqeqeq": ["error", "always"],
-    "no-console": "warn",
+    // console.error fica liberado para falhas de escrita no banco que ainda
+    // nao tem tratamento na interface (toast/undo chegam na fase 1c);
+    // console.log e as demais variantes continuam proibidas.
+    "no-console": ["warn", { "allow": ["error"] }],
 
     // __BUILD_INFO__ e a convencao do Vite para variavel injetada por define.
     "no-underscore-dangle": ["error", { "allow": ["__BUILD_INFO__"] }],
 
     // Importar CSS pelo efeito colateral e o jeito certo no Vite.
-    "import/no-unassigned-import": ["error", { "allow": ["**/*.css"] }],
+    "import/no-unassigned-import": ["error", { "allow": ["**/*.css", "fake-indexeddb/auto"] }],
 
     // Desligada: com o runtime automatico de JSX (jsx: "react-jsx") o React
     // nao precisa estar em escopo. A regra existe para o runtime classico.

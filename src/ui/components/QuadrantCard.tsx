@@ -1,58 +1,22 @@
-import { Ban, CalendarClock, Forward, Zap } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils.ts'
 import {
   MAX_OPEN_TASKS,
   isAtOrOverLimit,
   isNearLimit,
-  type QuadrantId,
   type QuadrantMeta,
 } from '@/domain/quadrant.ts'
-
-/**
- * Estilo por quadrante.
- *
- * Mapa estatico, e nao `bg-${id}` montado em tempo de execucao: o Tailwind
- * precisa ver a classe escrita no codigo para gera-la no CSS.
- *
- * A cor entra so como acento - barra fina no topo, icone e um tom bem leve
- * no cabecalho. O quadrante nunca e preenchido de cor saturada (docs secao 7).
- */
-const STYLES: Record<
-  QuadrantId,
-  { bar: string; ink: string; soft: string; icon: LucideIcon; recessed: boolean }
-> = {
-  q1: { bar: 'bg-q1', ink: 'text-q1-ink', soft: 'bg-q1-soft', icon: Zap, recessed: false },
-  q2: {
-    bar: 'bg-q2',
-    ink: 'text-q2-ink',
-    soft: 'bg-q2-soft',
-    icon: CalendarClock,
-    recessed: false,
-  },
-  q3: {
-    bar: 'bg-q3',
-    ink: 'text-q3-ink',
-    soft: 'bg-q3-soft',
-    icon: Forward,
-    recessed: false,
-  },
-  // Q4 fica visualmente recuado para a hierarquia da tela refletir a
-  // prioridade real: o que nao importa nem urge nao deve puxar o olho.
-  // Recuar e afundar em direcao ao fundo da pagina, nos dois temas - por isso
-  // surface-sunken, e nao surface-muted (que no tema escuro e mais claro que
-  // a superficie normal e faria o Q4 saltar justamente ao contrario).
-  q4: { bar: 'bg-q4', ink: 'text-q4-ink', soft: 'bg-q4-soft', icon: Ban, recessed: true },
-}
+import { QUADRANT_STYLES } from '@/ui/quadrantStyles.ts'
 
 export interface QuadrantCardProps {
   quadrant: QuadrantMeta
   /** Tarefas abertas no quadrante. */
   openCount: number
+  children: ReactNode
 }
 
-export function QuadrantCard({ quadrant, openCount }: QuadrantCardProps) {
-  const style = STYLES[quadrant.id]
+export function QuadrantCard({ quadrant, openCount, children }: QuadrantCardProps) {
+  const style = QUADRANT_STYLES[quadrant.id]
   const Icon = style.icon
 
   const full = isAtOrOverLimit(openCount)
@@ -108,11 +72,15 @@ export function QuadrantCard({ quadrant, openCount }: QuadrantCardProps) {
         </span>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
-        {openCount === 0 ? (
-          <p className="text-xs text-text-subtle">
-            Vazio. Ex.: &ldquo;{quadrant.emptyExample}&rdquo;
-          </p>
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-2.5">
+        {children}
+
+        {full ? (
+          // Avisa, nunca bloqueia: "nunca perca uma captura" (docs secao 5.1)
+          // vale mais do que manter a contagem redonda.
+          <output className="block text-xs text-warn">
+            Quadrante cheio: conclua, divida ou reclassifique.
+          </output>
         ) : null}
       </div>
     </section>

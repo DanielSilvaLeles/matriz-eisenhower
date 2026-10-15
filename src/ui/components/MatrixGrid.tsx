@@ -1,5 +1,5 @@
 import { quadrantMeta } from '@/domain/quadrant.ts'
-import { QuadrantCard } from '@/ui/components/QuadrantCard.tsx'
+import { QuadrantSection } from '@/ui/components/QuadrantSection.tsx'
 
 const AXIS_LABEL = 'text-[11px] font-medium tracking-wide text-text-muted uppercase'
 
@@ -32,8 +32,8 @@ export function MatrixGrid() {
       >
         Importante
       </div>
-      <QuadrantCard quadrant={quadrantMeta('q1')} openCount={0} />
-      <QuadrantCard quadrant={quadrantMeta('q2')} openCount={0} />
+      <QuadrantSection quadrant={quadrantMeta('q1')} />
+      <QuadrantSection quadrant={quadrantMeta('q2')} />
 
       <div
         className={`hidden rotate-180 items-center justify-center pr-1 [writing-mode:vertical-rl] sm:flex ${AXIS_LABEL}`}
@@ -41,8 +41,8 @@ export function MatrixGrid() {
       >
         Não importante
       </div>
-      <QuadrantCard quadrant={quadrantMeta('q3')} openCount={0} />
-      <QuadrantCard quadrant={quadrantMeta('q4')} openCount={0} />
+      <QuadrantSection quadrant={quadrantMeta('q3')} />
+      <QuadrantSection quadrant={quadrantMeta('q4')} />
     </div>
   )
 }

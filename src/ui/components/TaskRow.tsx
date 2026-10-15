@@ -1,15 +1,22 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { GripVertical } from 'lucide-react'
+import { CalendarPlus, Clipboard, GripVertical, PanelRight } from 'lucide-react'
 import { useState } from 'react'
+import { buildCalendarLink } from '@/domain/calendarLink.ts'
+import { dateBadgeFor, formatDateShortBr, showsMissingDateWarning } from '@/domain/dateStatus.ts'
+import { buildDelegationMessage } from '@/domain/delegationMessage.ts'
 import { prefersReducedMotion } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { QuadrantId } from '@/domain/quadrant.ts'
 import type { Task } from '@/domain/schema.ts'
+import { selectedTaskIdStore } from '@/ui/detail/store.ts'
 import { MoveToMenu } from './MoveToMenu.tsx'
 
 export interface TaskRowProps {
   task: Task
+  quadrant: QuadrantId
+  /** Dia local de hoje (AAAA-MM-DD), para os selos "Hoje"/"Atrasada"/"Cobrar hoje". */
+  today: string
   /** Classe `accent-qN` do quadrante, para o checkbox usar a cor certa. */
   accentClass: string
   /**
@@ -25,7 +32,18 @@ export interface TaskRowProps {
 /** Risca e some: curto e com proposito, 150-200ms (docs secao 7). */
 const COMPLETE_TRANSITION_MS = 180
 
-export function TaskRow({ task, accentClass, onToggle, onMove }: TaskRowProps) {
+const BADGE_LABEL: Record<'hoje' | 'atrasada' | 'cobrar-hoje', string> = {
+  hoje: 'Hoje',
+  atrasada: 'Atrasada',
+  'cobrar-hoje': 'Cobrar hoje',
+}
+
+function delegationStatus(task: Task): string | null {
+  if (task.quadrant !== 'q3') return null
+  return task.delegated_to === null ? 'a delegar' : `aguardando ${task.delegated_to}`
+}
+
+export function TaskRow({ task, quadrant, today, accentClass, onToggle, onMove }: TaskRowProps) {
   const [completing, setCompleting] = useState(false)
   const isDone = task.status === 'done'
   const struck = isDone || completing
@@ -53,6 +71,16 @@ export function TaskRow({ task, accentClass, onToggle, onMove }: TaskRowProps) {
     }, COMPLETE_TRANSITION_MS)
   }
 
+  function handleCopyDelegationMessage() {
+    navigator.clipboard.writeText(buildDelegationMessage(task)).catch((error: unknown) => {
+      console.error('Falha ao copiar a mensagem de delegacao', error)
+    })
+  }
+
+  const badge = dateBadgeFor(quadrant, task.date, today)
+  const missingDate = showsMissingDateWarning(quadrant, task.date)
+  const status = delegationStatus(task)
+
   return (
     <li
       ref={setNodeRef}
@@ -63,6 +91,9 @@ export function TaskRow({ task, accentClass, onToggle, onMove }: TaskRowProps) {
       className={cn(
         'group -mx-1 flex items-center gap-1 rounded-md px-1 py-1',
         isDragging && 'opacity-40',
+        // "Esmaecido" enquanto espera a virada do dia para ser arquivada
+        // automaticamente (docs secao 5.4) - so para tarefas abertas de Q4.
+        quadrant === 'q4' && !isDone && 'opacity-70',
       )}
     >
       {isDone ? (
@@ -104,15 +135,75 @@ export function TaskRow({ task, accentClass, onToggle, onMove }: TaskRowProps) {
           data-task-anchor
           className={cn('size-4 shrink-0 cursor-pointer', accentClass)}
         />
-        <span
-          className={cn(
-            'min-w-0 flex-1 truncate text-[13px] transition-[opacity,color] duration-150',
-            struck ? 'text-text-subtle line-through opacity-70' : 'text-text',
+        <span className="min-w-0 flex-1">
+          <span
+            className={cn(
+              'block truncate text-[13px] transition-[opacity,color] duration-150',
+              struck ? 'text-text-subtle line-through opacity-70' : 'text-text',
+            )}
+          >
+            {task.title}
+          </span>
+          {status === null ? null : (
+            <span className="block truncate text-[11px] text-text-subtle">{status}</span>
           )}
-        >
-          {task.title}
         </span>
       </label>
+
+      {missingDate ? (
+        <span className="shrink-0 rounded-full bg-warn-soft px-1.5 text-[11px] text-warn">
+          sem data
+        </span>
+      ) : null}
+
+      {task.date !== null && !missingDate ? (
+        <span
+          className={cn(
+            'shrink-0 rounded-full px-1.5 text-[11px] tabular-nums',
+            badge === null ? 'text-text-subtle' : 'bg-warn-soft font-medium text-warn',
+          )}
+          title={badge === null ? undefined : BADGE_LABEL[badge]}
+        >
+          {badge === null ? formatDateShortBr(task.date) : BADGE_LABEL[badge]}
+        </span>
+      ) : null}
+
+      {quadrant === 'q2' && task.date !== null && !isDone ? (
+        <a
+          href={buildCalendarLink(task.title, task.date, task.notes ?? undefined)}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Bloquear "${task.title}" na agenda`}
+          title="Bloquear na agenda"
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded text-text-subtle opacity-0 transition-opacity duration-150 hover:bg-surface-muted hover:text-text sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+        >
+          <CalendarPlus className="size-3.5" aria-hidden="true" />
+        </a>
+      ) : null}
+
+      {quadrant === 'q3' && !isDone ? (
+        <button
+          type="button"
+          onClick={handleCopyDelegationMessage}
+          aria-label={`Copiar mensagem de delegação de "${task.title}"`}
+          title="Copiar mensagem de delegação"
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded text-text-subtle opacity-0 transition-opacity duration-150 hover:bg-surface-muted hover:text-text sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+        >
+          <Clipboard className="size-3.5" aria-hidden="true" />
+        </button>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => {
+          selectedTaskIdStore.set(task.id)
+        }}
+        aria-label={`Abrir detalhe de "${task.title}"`}
+        title="Ver detalhe"
+        className="inline-flex size-6 shrink-0 items-center justify-center rounded text-text-subtle opacity-0 transition-opacity duration-150 hover:bg-surface-muted hover:text-text sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+      >
+        <PanelRight className="size-3.5" aria-hidden="true" />
+      </button>
 
       {!isDone && onMove ? (
         <MoveToMenu

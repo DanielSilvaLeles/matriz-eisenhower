@@ -1,10 +1,11 @@
 import { Dialog } from 'radix-ui'
-import { X } from 'lucide-react'
+import { ListChecks, X } from 'lucide-react'
 import { useInboxTasks } from '@/db/hooks.ts'
 import type { QuadrantId } from '@/domain/quadrant.ts'
 import type { Task } from '@/domain/schema.ts'
 import { moveTaskWithUndo } from '@/ui/actions/moveTaskWithUndo.ts'
 import { useNowTick } from '@/ui/hooks/useNowTick.ts'
+import { triageOpenStore } from '@/ui/triage/store.ts'
 import { CaptureField } from './CaptureField.tsx'
 import { InboxItemRow } from './InboxItemRow.tsx'
 
@@ -63,6 +64,20 @@ export function MobileInboxSheet({ open, onClose }: MobileInboxSheetProps) {
           <div className="shrink-0 border-b border-border">
             <CaptureField />
           </div>
+
+          {tasks.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => {
+                onClose()
+                triageOpenStore.set(true)
+              }}
+              className="mx-3 mt-2 flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border-strong text-[13px] font-medium text-text hover:bg-surface-muted"
+            >
+              <ListChecks className="size-3.5" aria-hidden="true" />
+              Triar agora
+            </button>
+          ) : null}
 
           <ul data-task-list="inbox" className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
             {tasks.length === 0 ? (

@@ -242,3 +242,4 @@ describe('marcacao de pendencia (docs secao 6.3)', () => {
     expect((await getMeta(db)).pending_ids).not.toContain(task.id)
   })
 })
+

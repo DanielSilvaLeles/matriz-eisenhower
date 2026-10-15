@@ -1,27 +1,49 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { usePendingCount } from '@/db/hooks.ts'
+import { getDB } from '@/db/schema.ts'
+import { archiveStaleQ4Tasks } from '@/db/archiveQ4.ts'
 import { setupSyncTriggers } from '@/sync/triggers.ts'
+import type { QuadrantId } from '@/domain/quadrant.ts'
 import { DndWorkspace } from '@/ui/dnd/DndWorkspace.tsx'
 import { useGlobalShortcuts } from '@/ui/shortcuts/useGlobalShortcuts.ts'
 import { useMediaQuery } from '@/ui/hooks/useMediaQuery.ts'
 import { useWarnBeforeUnload } from '@/ui/hooks/useWarnBeforeUnload.ts'
-import { HelpOverlay } from '@/ui/components/HelpOverlay.tsx'
+import { AppHeaderActions } from '@/ui/components/AppHeaderActions.tsx'
+import { GlobalOverlays } from '@/ui/components/GlobalOverlays.tsx'
 import { InboxPanel } from '@/ui/components/InboxPanel.tsx'
 import { MatrixGrid } from '@/ui/components/MatrixGrid.tsx'
 import { MobileMatrixView } from '@/ui/components/MobileMatrixView.tsx'
-import { SettingsPanel } from '@/ui/components/SettingsPanel.tsx'
-import { SyncIndicator } from '@/ui/components/SyncIndicator.tsx'
-import { ThemeToggle } from '@/ui/components/ThemeToggle.tsx'
-import { UndoToast } from '@/ui/components/UndoToast.tsx'
+import { TodayBar, type TodayTarget } from '@/ui/components/TodayBar.tsx'
 
 /** Mesmo valor do breakpoint `sm` do Tailwind (40rem = 640px). */
 const DESKTOP_QUERY = '(min-width: 40rem)'
+
+function scrollQuadrantIntoView(quadrant: QuadrantId): void {
+  document
+    .querySelector(`[data-task-list="${quadrant}"]`)
+    ?.closest('section')
+    ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+}
 
 export function App() {
   useGlobalShortcuts()
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
   const pendingCount = usePendingCount()
   useWarnBeforeUnload(pendingCount > 0)
+
+  const [inboxCollapsed, setInboxCollapsed] = useState(false)
+  const [mobileSelected, setMobileSelected] = useState<QuadrantId>('q1')
+  const [mobileInboxOpen, setMobileInboxOpen] = useState(false)
+
+  function handleTodayNavigate(target: TodayTarget): void {
+    if (target === 'inbox') {
+      if (isDesktop) setInboxCollapsed(false)
+      else setMobileInboxOpen(true)
+      return
+    }
+    if (isDesktop) scrollQuadrantIntoView(target)
+    else setMobileSelected(target)
+  }
 
   useEffect(() => {
     // Pede para o navegador nao limpar o banco local por pressao de espaco
@@ -40,6 +62,15 @@ export function App() {
   // focar, a cada 60s visivel, 3s apos editar, ao voltar a conexao.
   useEffect(() => setupSyncTriggers(), [])
 
+  // Arquivamento automatico do Q4 na virada do dia (docs secao 5.4): roda
+  // uma vez ao abrir o app - suficiente, nao precisa ser no instante exato
+  // da meia-noite (ver src/db/archiveQ4.ts).
+  useEffect(() => {
+    archiveStaleQ4Tasks(getDB(), new Date().toISOString()).catch((error: unknown) => {
+      console.error('Falha ao arquivar tarefas de Eliminar', error)
+    })
+  }, [])
+
   return (
     <DndWorkspace>
       <div className="flex min-h-dvh flex-col gap-3 p-3 sm:gap-4 sm:p-4">
@@ -47,12 +78,10 @@ export function App() {
           <h1 className="text-[13px] font-semibold tracking-tight">
             Matriz de Eisenhower
           </h1>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <SyncIndicator />
-            <SettingsPanel />
-            <ThemeToggle />
-          </div>
+          <AppHeaderActions />
         </header>
+
+        <TodayBar onNavigate={handleTodayNavigate} />
 
         {/*
          * So uma arvore de layout montada por vez - nao as duas com uma
@@ -68,7 +97,7 @@ export function App() {
             {/* Desktop: matriz 2x2 com a caixa de entrada ao lado (docs secao 5.1-5.2). */}
             <main className="flex min-h-0 flex-1 gap-3 sm:gap-4">
               <MatrixGrid />
-              <InboxPanel />
+              <InboxPanel collapsed={inboxCollapsed} onCollapsedChange={setInboxCollapsed} />
             </main>
 
             <footer className="shrink-0 text-[11px] text-text-subtle">
@@ -79,12 +108,16 @@ export function App() {
           </>
         ) : (
           // Mobile: mini matriz seletora, uma lista por vez (docs secao 5.7).
-          <MobileMatrixView />
+          <MobileMatrixView
+            selected={mobileSelected}
+            onSelectedChange={setMobileSelected}
+            inboxOpen={mobileInboxOpen}
+            onInboxOpenChange={setMobileInboxOpen}
+          />
         )}
       </div>
 
-      <UndoToast />
-      <HelpOverlay />
+      <GlobalOverlays />
     </DndWorkspace>
   )
 }

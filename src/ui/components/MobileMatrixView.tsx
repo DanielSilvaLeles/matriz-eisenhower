@@ -1,11 +1,18 @@
 import { Inbox } from 'lucide-react'
-import { useState } from 'react'
 import { useInboxCount } from '@/db/hooks.ts'
 import { QUADRANTS, quadrantMeta, type QuadrantId } from '@/domain/quadrant.ts'
 import { CaptureField } from './CaptureField.tsx'
 import { MiniQuadrantButton } from './MiniQuadrantButton.tsx'
 import { MobileInboxSheet } from './MobileInboxSheet.tsx'
 import { QuadrantSection } from './QuadrantSection.tsx'
+
+export interface MobileMatrixViewProps {
+  /** Controlado pelo App.tsx: a faixa "Hoje" (docs secao 5.1) precisa poder trocar o quadrante selecionado e abrir a caixa de entrada. */
+  selected: QuadrantId
+  onSelectedChange: (quadrant: QuadrantId) => void
+  inboxOpen: boolean
+  onInboxOpenChange: (open: boolean) => void
+}
 
 /**
  * Layout mobile (docs secao 5.7): quatro listas lado a lado nao cabem no
@@ -16,9 +23,12 @@ import { QuadrantSection } from './QuadrantSection.tsx'
  * nao ha deteccao de largura por JavaScript, para nao arriscar flash de
  * layout errado antes da primeira pintura).
  */
-export function MobileMatrixView() {
-  const [selected, setSelected] = useState<QuadrantId>('q1')
-  const [inboxOpen, setInboxOpen] = useState(false)
+export function MobileMatrixView({
+  selected,
+  onSelectedChange,
+  inboxOpen,
+  onInboxOpenChange,
+}: MobileMatrixViewProps) {
   const inboxCount = useInboxCount()
 
   return (
@@ -26,7 +36,7 @@ export function MobileMatrixView() {
       <button
         type="button"
         onClick={() => {
-          setInboxOpen(true)
+          onInboxOpenChange(true)
         }}
         aria-label={`Abrir caixa de entrada, ${inboxCount} ${inboxCount === 1 ? 'item' : 'itens'}`}
         className="flex min-h-11 w-fit shrink-0 items-center gap-1.5 self-start rounded-full border border-border bg-surface px-3 text-[13px] text-text-muted"
@@ -47,7 +57,7 @@ export function MobileMatrixView() {
             quadrant={quadrant}
             selected={selected === quadrant.id}
             onSelect={() => {
-              setSelected(quadrant.id)
+              onSelectedChange(quadrant.id)
             }}
           />
         ))}
@@ -68,7 +78,7 @@ export function MobileMatrixView() {
       <MobileInboxSheet
         open={inboxOpen}
         onClose={() => {
-          setInboxOpen(false)
+          onInboxOpenChange(false)
         }}
       />
     </div>

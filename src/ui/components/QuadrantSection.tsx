@@ -1,12 +1,18 @@
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { useOpenTaskCount, useOpenTasks, useCompletedToday } from '@/db/hooks.ts'
+import {
+  useCompletedToday,
+  useEliminatedThisWeek,
+  useOpenTaskCount,
+  useOpenTasks,
+} from '@/db/hooks.ts'
 import { getDB } from '@/db/schema.ts'
 import { addTaskToQuadrant, completeTaskById, reopenTaskById } from '@/db/tasksRepo.ts'
 import type { QuadrantId, QuadrantMeta } from '@/domain/quadrant.ts'
 import type { Task } from '@/domain/schema.ts'
 import { moveTaskWithUndo } from '@/ui/actions/moveTaskWithUndo.ts'
 import { quadrantContainerId } from '@/ui/dnd/containers.ts'
+import { useToday } from '@/ui/hooks/useNowTick.ts'
 import { QUADRANT_STYLES } from '@/ui/quadrantStyles.ts'
 import { cn } from '@/lib/utils.ts'
 import { AddTaskField } from './AddTaskField.tsx'
@@ -35,6 +41,8 @@ export function QuadrantSection({ quadrant }: QuadrantSectionProps) {
   const openTasks = useOpenTasks(quadrant.id)
   const openCount = useOpenTaskCount(quadrant.id)
   const completedToday = useCompletedToday(quadrant.id)
+  const eliminatedThisWeek = useEliminatedThisWeek()
+  const today = useToday()
   const accentClass = QUADRANT_STYLES[quadrant.id].accent
 
   const { setNodeRef, isOver } = useDroppable({ id: quadrantContainerId(quadrant.id) })
@@ -53,7 +61,17 @@ export function QuadrantSection({ quadrant }: QuadrantSectionProps) {
   }
 
   return (
-    <QuadrantCard quadrant={quadrant} openCount={openCount}>
+    <QuadrantCard
+      quadrant={quadrant}
+      openCount={openCount}
+      // "n eliminadas esta semana" (docs secao 5.4): reforco positivo, so
+      // em Eliminar - nos outros tres quadrantes nao faz sentido nenhum.
+      footerNote={
+        quadrant.id === 'q4' && eliminatedThisWeek > 0
+          ? `${eliminatedThisWeek} ${eliminatedThisWeek === 1 ? 'eliminada' : 'eliminadas'} esta semana`
+          : null
+      }
+    >
       <AddTaskField
         quadrantVerb={quadrant.verb}
         onAdd={(title) => addTaskToQuadrant(db, quadrant.id, title)}
@@ -82,6 +100,8 @@ export function QuadrantSection({ quadrant }: QuadrantSectionProps) {
               <TaskRow
                 key={task.id}
                 task={task}
+                quadrant={quadrant.id}
+                today={today}
                 accentClass={accentClass}
                 onToggle={handleToggle}
                 onMove={handleMove}
@@ -93,6 +113,8 @@ export function QuadrantSection({ quadrant }: QuadrantSectionProps) {
 
       <CompletedTodayList
         tasks={completedToday}
+        quadrant={quadrant.id}
+        today={today}
         accentClass={accentClass}
         onToggle={handleToggle}
       />

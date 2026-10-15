@@ -8,16 +8,15 @@ interface ShortcutEntry {
   readonly description: string
 }
 
-/**
- * So os atalhos que ja fazem algo nesta fase. `Enter`, `T` e `S` ficam de
- * fora de proposito - ver o comentario em useGlobalShortcuts.ts.
- */
 const SHORTCUTS: readonly ShortcutEntry[] = [
   { keys: ['N'], description: 'Focar a captura, de qualquer lugar' },
   { keys: ['↑', '↓', '←', '→'], description: 'Navegar entre as tarefas da lista focada' },
   { keys: ['1', '2', '3', '4'], description: 'Mover a tarefa focada para Fazer/Agendar/Delegar/Eliminar' },
   { keys: ['0'], description: 'Devolver a tarefa focada para a caixa de entrada' },
   { keys: ['Espaço'], description: 'Concluir ou reabrir a tarefa focada' },
+  { keys: ['Enter'], description: 'Abrir o detalhe da tarefa focada' },
+  { keys: ['T'], description: 'Abrir a triagem da caixa de entrada' },
+  { keys: ['S'], description: 'Sincronizar agora' },
   { keys: ['Ctrl', 'Z'], description: 'Desfazer a última ação' },
   { keys: ['?'], description: 'Abrir esta ajuda' },
 ]

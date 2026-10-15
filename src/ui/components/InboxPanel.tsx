@@ -1,11 +1,11 @@
-import { ChevronsRight, Inbox } from 'lucide-react'
-import { useState } from 'react'
+import { ChevronsRight, Inbox, ListChecks } from 'lucide-react'
 import { useInboxTasks } from '@/db/hooks.ts'
 import type { QuadrantId } from '@/domain/quadrant.ts'
 import type { Task } from '@/domain/schema.ts'
 import { cn } from '@/lib/utils.ts'
 import { moveTaskWithUndo } from '@/ui/actions/moveTaskWithUndo.ts'
 import { useNowTick } from '@/ui/hooks/useNowTick.ts'
+import { triageOpenStore } from '@/ui/triage/store.ts'
 import { CaptureField, INBOX_CAPTURE_FIELD_ID } from './CaptureField.tsx'
 import { InboxItemRow } from './InboxItemRow.tsx'
 
@@ -15,13 +15,18 @@ function handleMove(task: Task, toQuadrant: QuadrantId | null): void {
   })
 }
 
+export interface InboxPanelProps {
+  /** Controlado pelo App.tsx: a faixa "Hoje" (docs secao 5.1) precisa poder expandir o painel. */
+  collapsed: boolean
+  onCollapsedChange: (collapsed: boolean) => void
+}
+
 /**
  * Painel lateral da caixa de entrada, fixo a direita da matriz no desktop
  * (docs secao 5.2). So a versao de telas largas - o layout mobile (fase 1c,
  * secao 5.7) usa outro componente, acessado por um chip com badge.
  */
-export function InboxPanel() {
-  const [collapsed, setCollapsed] = useState(false)
+export function InboxPanel({ collapsed, onCollapsedChange }: InboxPanelProps) {
   const tasks = useInboxTasks()
   const now = useNowTick()
 
@@ -30,7 +35,7 @@ export function InboxPanel() {
       <button
         type="button"
         onClick={() => {
-          setCollapsed(false)
+          onCollapsedChange(false)
         }}
         aria-label={`Abrir caixa de entrada, ${tasks.length} ${tasks.length === 1 ? 'item' : 'itens'}`}
         className="relative flex h-fit shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-2 text-text-muted hover:text-text"
@@ -63,7 +68,7 @@ export function InboxPanel() {
         <button
           type="button"
           onClick={() => {
-            setCollapsed(true)
+            onCollapsedChange(true)
           }}
           aria-label="Recolher caixa de entrada"
           title="Recolher"
@@ -74,6 +79,19 @@ export function InboxPanel() {
       </header>
 
       <CaptureField />
+
+      {tasks.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => {
+            triageOpenStore.set(true)
+          }}
+          className="mx-3 mb-2 flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-border-strong text-[13px] font-medium text-text hover:bg-surface-muted"
+        >
+          <ListChecks className="size-3.5" aria-hidden="true" />
+          Triar agora
+        </button>
+      ) : null}
 
       <ul
         data-task-list="inbox"

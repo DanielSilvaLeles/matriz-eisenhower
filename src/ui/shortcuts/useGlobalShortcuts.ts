@@ -1,10 +1,7 @@
 /**
- * Atalhos de teclado globais (docs secao 5.6). So os que ja tem para onde
- * ir nesta fase: `Enter` (abrir detalhe) e `T` (triagem) ficam de fora
- * porque o painel de detalhe e o modo triagem ainda nao existem (fase 3) -
- * amarrar uma tecla a uma funcionalidade que nao faz nada seria pior do que
- * nao ter o atalho. `S` (sincronizar) entrou nesta fase, agora que a
- * sincronizacao existe.
+ * Atalhos de teclado globais (docs secao 5.6): todos os que o documento
+ * pede ja tem para onde ir a partir desta fase (`Enter` abre o painel de
+ * detalhe, `T` abre a triagem).
  *
  * `Espaco` para concluir nao tem codigo aqui: a navegacao por seta leva o
  * foco ao proprio checkbox (ver data-task-anchor em TaskRow), e o navegador
@@ -17,7 +14,9 @@ import { INBOX_CAPTURE_FIELD_ID } from '@/ui/components/CaptureField.tsx'
 import type { QuadrantId } from '@/domain/quadrant.ts'
 import { moveTaskWithUndo } from '@/ui/actions/moveTaskWithUndo.ts'
 import { runSync } from '@/sync/engine.ts'
+import { selectedTaskIdStore } from '@/ui/detail/store.ts'
 import { helpOpenStore } from '@/ui/help/store.ts'
+import { triageOpenStore } from '@/ui/triage/store.ts'
 import { undoPending } from '@/ui/undo/store.ts'
 
 /**
@@ -39,7 +38,8 @@ const NON_TEXT_INPUT_TYPES = new Set([
   'image',
 ])
 
-function isEditableTarget(target: EventTarget | null): boolean {
+/** Exportado para o modo triagem (TriageOverlay.tsx) reusar a mesma regra. */
+export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   if (target.isContentEditable) return true
   if (target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return true
@@ -118,6 +118,21 @@ export function useGlobalShortcuts(): void {
         runSync().catch((error: unknown) => {
           console.error('Falha ao sincronizar', error)
         })
+        return
+      }
+
+      if (event.key === 't' || event.key === 'T') {
+        event.preventDefault()
+        triageOpenStore.set(true)
+        return
+      }
+
+      if (event.key === 'Enter') {
+        const taskId = focusedTaskId()
+        if (taskId !== undefined) {
+          event.preventDefault()
+          selectedTaskIdStore.set(taskId)
+        }
         return
       }
 

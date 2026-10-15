@@ -31,3 +31,17 @@ export function relativeTimeFromNow(isoInstant: string, nowIso: string): string 
 export function isStaleInInbox(isoInstant: string, nowIso: string): boolean {
   return new Date(nowIso).getTime() - new Date(isoInstant).getTime() >= DAY_MS
 }
+
+/** Dia local (AAAA-MM-DD) de um instante ISO - em fuso local, nao UTC. */
+export function localDateOf(isoInstant: string): string {
+  const d = new Date(isoInstant)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/** A virada do dia aconteceu entre os dois instantes (docs secao 5.4: arquivamento automatico do Q4). */
+export function hasDayChanged(isoInstant: string, nowIso: string): boolean {
+  return localDateOf(isoInstant) < localDateOf(nowIso)
+}

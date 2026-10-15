@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { localDateOf } from '@/domain/time.ts'
 
 const TICK_MS = 60_000
 
@@ -19,4 +20,9 @@ export function useNowTick(): string {
   }, [])
 
   return now
+}
+
+/** Dia local de hoje (AAAA-MM-DD), atualizado a cada minuto - selos "Hoje"/"Atrasada" (docs secao 5.4). */
+export function useToday(): string {
+  return localDateOf(useNowTick())
 }

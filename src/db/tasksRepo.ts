@@ -16,23 +16,19 @@
 import { positionBetween } from '@/domain/position.ts'
 import type { QuadrantId } from '@/domain/quadrant.ts'
 import type { Task, TaskSource } from '@/domain/schema.ts'
-import {
-  completeTask,
-  createTask,
-  moveTask,
-  reopenTask,
-  reorderTask,
-} from '@/domain/task.ts'
+import { completeTask, createTask, moveTask, reopenTask, reorderTask } from '@/domain/task.ts'
 import { notifyLocalWrite } from './changeSignal.ts'
 import { getDeviceName } from './device.ts'
 import { markPendingInTx, unmarkPendingInTx } from './metaRepo.ts'
 import type { MatrizDB } from './schema.ts'
 
-function newId(): string {
+/** Exportado so para tasksRepo.lifecycle.ts reusar - mesmo arquivo logico, dividido pelo limite de linhas do lint. */
+export function newId(): string {
   return crypto.randomUUID()
 }
 
-function nowISO(): string {
+/** Exportado so para tasksRepo.lifecycle.ts reusar. */
+export function nowISO(): string {
   return new Date().toISOString()
 }
 
@@ -46,7 +42,8 @@ function nowISO(): string {
  * `null`, a consulta cai para o indice `status` sozinho e filtra em JS -
  * aceitavel porque a caixa de entrada, por natureza, fica pequena.
  */
-async function lastPosition(db: MatrizDB, quadrant: QuadrantId | null): Promise<number | null> {
+/** Exportado so para tasksRepo.lifecycle.ts reusar. */
+export async function lastPosition(db: MatrizDB, quadrant: QuadrantId | null): Promise<number | null> {
   const open =
     quadrant === null
       ? (await db.tasks.where('status').equals('open').toArray()).filter(
@@ -148,7 +145,8 @@ export function addTaskToInbox(
   })
 }
 
-async function getTaskOrThrow(db: MatrizDB, taskId: string): Promise<Task> {
+/** Exportado so para tasksRepo.lifecycle.ts reusar. */
+export async function getTaskOrThrow(db: MatrizDB, taskId: string): Promise<Task> {
   const task = await db.tasks.get(taskId)
   if (!task) throw new TaskNotFoundError(taskId)
   return task
@@ -267,3 +265,4 @@ export function reorderTaskPosition(
     return task
   })
 }
+

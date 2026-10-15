@@ -28,8 +28,16 @@ Script) é a cópia compartilhada entre aparelhos. Nada de VPS, túnel ou proxy.
 ```
 src/
   domain/   regras puras, sem React, sem banco, sem rede — tudo com teste
+    task.ts           criar/mover/reordenar/concluir/reabrir
+    taskLifecycle.ts  arquivar, restaurar do histórico, editar campos, ordem por quadrante
+    dateStatus.ts     selos Hoje/Atrasada/Cobrar hoje, chips de data da triagem
+    delegationMessage.ts  "Copiar mensagem de delegação" (Q3)
+    calendarLink.ts   link pré-preenchido do Google Agenda, sem OAuth
   db/       Dexie: schema, migrations, repositório de tarefas e backup
             changeSignal.ts avisa o sync de uma escrita sem o db conhecer o sync
+            peopleRepo.ts   autocomplete de "Para quem?" (docs seção 5.3)
+            archiveQ4.ts    arquivamento automático do Q4 na virada do dia
+            tasksRepo.lifecycle.ts  editTaskFields/archiveTaskById/restoreTaskFromHistory
   capture.ts  porta única de captura (docs seção 8), usada pela caixa de entrada
   sync/     ciclo pull -> merge -> push -> verificação
     client.ts    chamada HTTP de baixo nível (classifica toda falha num motivo)
@@ -38,12 +46,14 @@ src/
     config.ts     URL/token — só em localStorage
   ui/
     components/  componentes de apresentação
+    triage/      modo triagem (docs seção 5.3) — store + overlay + passos
+    detail/      store do painel de detalhe (docs seção 5.5), compartilhado
     dnd/         DndContext único (desktop + caixa de entrada), ids de contentor
     actions/     orquestração (ex.: mover tarefa + registrar desfazer)
     shortcuts/   atalhos de teclado globais
     undo/        store do toast "Desfazer" (um nível, 6s)
     help/        store do painel de ajuda (atalho `?`)
-    hooks/       hooks genéricos (useMediaQuery, useNowTick, useTheme, useWarnBeforeUnload)
+    hooks/       hooks genéricos (useMediaQuery, useNowTick/useToday, useTheme, useWarnBeforeUnload)
   lib/      utilitários genéricos
   styles/   tokens de design e CSS global
 e2e/        Playwright — 3 fluxos essenciais (docs seção 9)
@@ -425,6 +435,151 @@ próprio campo e o botão "Mostrar token" (o `aria-label` contém a palavra
 `aria-label` de botão vizinho tem o mesmo risco; prefira `exact: true` para
 labels de uma palavra só.
 
+### Triagem, detalhe e histórico (fase 3) — dois bugs reais encontrados
+
+**Bug real #1 — o botão "Mover" ficava invisível fora de uma `TaskRow`.**
+`MoveToMenu.tsx` estiliza o próprio gatilho com `sm:opacity-0
+sm:group-hover:opacity-100` — só aparece em hover/foco a partir do
+breakpoint `sm`, e só quando existe um ancestral com a classe `.group`
+(Tailwind). Em `TaskRow.tsx` esse ancestral é a própria `<li className="group
+...">`, então funciona. Mas o `TaskDetailPanel.tsx` (painel de detalhe,
+docs 5.5) e o `HistoryPanel.tsx` (histórico, docs 5.9) reusam o mesmo
+`MoveToMenu` dentro de um cabeçalho/linha **sem** essa classe — o botão
+ficava no DOM, funcional ao toque (mobile sempre mostra, `opacity-100` até
+`sm`), mas **permanentemente invisível em telas largas**, porque a condição
+de hover nunca tinha um `.group` para disparar. Encontrado só no teste
+manual no navegador (o Playwright não cobre esses dois painéis ainda,
+e o bug é puramente visual — nada quebra, só não aparece). Corrigido
+acrescentando `group` ao `<header>` do painel de detalhe e ao `<li>` de
+cada linha do histórico. **Lição:** qualquer componente que reusa
+`MoveToMenu` (ou outro filho com `sm:group-hover:opacity-100`) fora de uma
+`TaskRow` precisa lembrar de prover o `.group` ele mesmo — o componente não
+avisa, só fica mudo.
+
+**Bug real #2 — o último item da triagem podia pular o passo de
+data/delegação.** `TriageOverlay.tsx` decidia o que renderizar nesta ordem:
+"caixa vazia?" primeiro, depois os passos (`date`/`delegate`/`help`/`edit`),
+por último o item normal. Mover o **último** item da caixa para Q2/Q3 esvazia
+`useInboxTasks()` no mesmo instante em que o modo muda para `'date'`/
+`'delegate'` — e a tarefa pendente vinha de `useTask(activeTaskId)`, uma
+releitura assíncrona do Dexie que ainda não tinha resolvido nesse primeiro
+render. Resultado: a checagem "caixa vazia" (que não dependia de nada
+assíncrono) vencia a corrida, e a tela de "Caixa de entrada zerada!" aparecia
+**sem nunca mostrar o passo de data/delegação** para o último item — a
+pessoa perdia a chance de dar a data ou escolher a pessoa logo ali.
+Encontrado pelo Playwright (`e2e/triage.spec.ts`), não pelo teste manual
+(que sempre testou com mais de um item na caixa, onde a corrida não
+acontece). Corrigido de duas formas, juntas: (1) o estado "tarefa pendente"
+guarda o **objeto `Task` capturado na hora do clique/tecla**, não só o id —
+elimina a releitura assíncrona por completo, o passo tem os dados na mesma
+tarefa com que a pessoa interagiu; (2) a ordem de verificação na JSX mudou
+para checar os passos de acompanhamento **antes** da checagem de "vazio",
+como defesa em profundidade. **Lição:** numa máquina de estados que reage a
+uma lista ao vivo (`useLiveQuery`), nunca decida "terminou" só porque a
+lista esvaziou — pode haver um passo pendente que ainda depende do item que
+acabou de sair dela.
+
+**Máquina de estados da triagem**, sem fila congelada: sempre processa o
+item mais antigo da caixa (`useInboxTasks` já ordena assim) que ainda não
+foi pulado nesta sessão (`skipped: string[]`, reiniciado só quando a
+triagem reabre). "Pular" (tecla `S`) é por sessão, não permanente — fechar e
+reabrir a triagem esquece os pulos. O progresso "N de M" vem de
+`initialTotal` (quantos itens havia quando abriu) menos o que sobrou na
+caixa agora — não um índice de fila.
+
+**Resetar estado ao trocar de prop, sem `useEffect`:** tanto
+`TriageOverlay` (reiniciar ao abrir) quanto `TaskDetailFields` (campos
+começarem do zero ao trocar de tarefa) precisavam "resetar quando X muda".
+Para `TaskDetailFields`, a solução é o padrão oficial do React: o pai
+(`TaskDetailPanel`) passa `key={task.id}`, e trocar de tarefa **remonta** o
+componente do zero — sem efeito nenhum. Para `TriageOverlay` (precisa
+resetar vários `useState` ao mesmo tempo, não um componente inteiro), o
+padrão é comparar o valor anterior durante a própria renderização
+(`if (open !== wasOpen) { setWasOpen(open); ... }`) e chamar `setState`
+ali mesmo - permitido pelo React quando é síncrono e correndo durante o
+render, ao contrário de um `useEffect` com `setState` dentro (que o oxlint
+recusa com `set-state-in-effect`: dispara um ciclo de render a mais,
+geralmente evitável).
+
+**Atalhos de teclado da triagem colidem com os globais, de propósito
+resolvido com `stopPropagation`:** dentro do modo triagem, `1`-`4`/`E`/`S`
+significam coisas diferentes do que significam na matriz (mandar para
+quadrante, editar, pular — não mover a tarefa *focada* nem sincronizar). O
+`onKeyDown` do `Dialog.Content` da triagem escuta esses mesmos eventos
+antes de `useGlobalShortcuts.ts` (que ouve em `window`), e chama
+`event.stopPropagation()` nos que trata — sem isso, `S` dentro da triagem
+também disparava `runSync()` (o atalho global de sincronizar), um efeito
+colateral que nada tinha a ver com a intenção da pessoa. `isEditableTarget`
+foi exportado de `useGlobalShortcuts.ts` para a triagem reusar a mesma
+regra "não é campo de texto".
+
+**`sortTasksForQuadrant` (docs 5.4): só Q2 ordena por data**, não-datadas no
+fim; os outros três quadrantes continuam por posição manual (arrastar,
+teclado, menu "Mover para"). Isso significa que **arrastar para reordenar
+dentro de Q2 não tem efeito visual** — a posição salva, mas a tela sempre
+reordena por data no próximo render. Não implementado como bloqueio (o
+dnd-kit continua funcionando para mover *entre* quadrantes), só a
+reordenação dentro de Q2 não "gruda" - decisão deliberada: a seção 5.4 pede
+"ordenada por data", não "ordenada por data, exceto quando a pessoa
+arrastar".
+
+**"Esta semana"/"Semana que vem" nos chips de data da triagem** (docs 5.3)
+não têm regra fixa no documento, só os rótulos. Leitura escolhida em
+`src/domain/dateStatus.ts`: semana de segunda a domingo; "esta semana" é a
+sexta-feira da semana corrente (ou da seguinte, se hoje já passou da
+sexta); "semana que vem" é a segunda-feira seguinte. Documentado ali para
+não surpreender quem reabrir o código depois.
+
+**`editTaskFields` nunca gera `task_events`** (diferente de mover, concluir,
+reabrir, arquivar): os tipos em `TASK_EVENT_TYPES` (docs seção 10) não
+incluem "editado" — mudar notas/data/delegação/tags é só uma atualização de
+campo, não um evento de histórico. A linha do tempo do painel de detalhe
+(docs 5.5) mostra só os eventos de verdade.
+
+**`people` só alimenta autocomplete**, nunca é referência: `delegated_to`
+continua `string` (o nome em texto livre, como a seção 10 pede), e
+`ensurePersonInTx` (chamado de dentro de `editTaskFields`/`tasksRepo`) só
+garante que o nome existe em `people` para aparecer no `<datalist>` da
+próxima vez — comparação sem diferenciar maiúsculas/minúsculas, para "Ana"
+e "ana" não virarem duas pessoas.
+
+**Arquivamento automático do Q4** (`src/db/archiveQ4.ts`) roda uma vez ao
+abrir o app (`App.tsx`), comparando o dia local de `updated_at` de cada
+tarefa aberta de Q4 com o dia de hoje — não um cron nem um `setInterval` à
+meia-noite: para um app de um usuário só, "da próxima vez que a pessoa olhar
+a tela" é suficiente, e evitar um temporizador de fundo é mais simples e
+não gasta bateria à toa. "N eliminadas esta semana" conta por
+`task_events` (tipo `archived`, `at` desde a segunda-feira), não por
+`tasks.status === 'archived'` — o status não diz *quando*, só *que*; o
+evento é exatamente o que a seção 10 descreve `task_events` para fazer
+("revisão semanal").
+
+**Arquivos divididos só pelo limite de linhas/dependências do lint, não por
+fronteira de domínio real** (registrado para não confundir quem procurar
+uma função e não achá-la "onde devia estar"): `src/domain/task.ts` →
+`taskLifecycle.ts` (archiveTask/restoreTask/editTaskFields/
+sortTasksForQuadrant), `src/db/tasksRepo.ts` → `tasksRepo.lifecycle.ts`
+(as versões com efeito colateral dessas mesmas três), `TaskDetailPanel.tsx`
+→ `TaskDetailFields.tsx` (os campos editáveis), `TriageOverlay.tsx` →
+`TriageItemStep.tsx` + `TriageEditStep.tsx` + `TriageFollowUpSteps.tsx`
+(data+delegação, um arquivo só pelo limite de *dependências*, não linhas),
+`App.tsx` → `AppHeaderActions.tsx` + `GlobalOverlays.tsx` (só para não
+estourar `import/max-dependencies`, 16 módulos).
+
+### Playwright — fluxo de triagem
+
+`e2e/triage.spec.ts` cobre o atalho `T`, `1`-`4`, "Me ajude a decidir" e a
+tela de caixa zerada. O atalho global `T` só age fora de campo editável
+(`isEditableTarget`) — depois de `captura.press('Enter')` o foco **continua**
+no próprio campo de captura (de propósito, para "mantém o foco para a
+próxima" funcionar — docs 5.1/5.2), então o teste precisa clicar em outro
+lugar neutro (o `<h1>`) antes de `T`, senão a tecla só é digitada no campo.
+Depois de abrir a triagem por `T`, o primeiro atalho de teclado (`1`-`4`)
+também precisa de um clique dentro do diálogo antes — o foco do Radix
+Dialog pode não ter terminado de entrar no conteúdo a tempo do primeiro
+`keydown` sintético do Playwright, uma corrida que não aparece ao testar
+na mão (onde sempre há alguns milissegundos entre abrir e a próxima tecla).
+
 ## Segurança (o repositório é público)
 
 - **Nenhum segredo no código, nos testes ou no histórico do git.**
@@ -460,12 +615,16 @@ o Pages realmente publicou a versão nova.
   cerca de 1 minuto) ou ao clicar em "Sincronizar agora".
 - **O push envia o documento inteiro**, não um delta. Simples e suficiente nesta
   escala; se o arquivo crescer muito, reavaliar.
-- **Bundle de produção em ~610 KB (191 KB gzip)**, acima do aviso padrão de
+- **Bundle de produção em ~660 KB (203 KB gzip)**, acima do aviso padrão de
   500 KB do Vite. Vem de dnd-kit + radix-ui + Dexie + React, tudo carregado de
   uma vez (sem `import()` dinâmico). Aceitável por ora: é um PWA que faz cache
   do app inteiro no primeiro acesso (fase 4) — carrega uma vez, funciona
   offline depois. Reavaliar com `code-splitting` se a fase 4 mostrar isso como
   problema real de carregamento inicial.
+- **Arrastar para reordenar dentro de Q2 não "gruda"**: Q2 sempre reordena a
+  exibição por data (docs 5.4), então soltar numa posição manual específica
+  é imediatamente sobrescrito no próximo render. Decisão deliberada, não bug
+  — ver "sortTasksForQuadrant" no CLAUDE.md.
 
 ## Estado atual
 
@@ -484,13 +643,33 @@ Configurações com URL/token (só em `localStorage`) e "Testar conexão";
 aviso ao fechar a aba com pendências; 3 testes Playwright do fluxo de sync
 contra um servidor simulado por interceptação de rota, no CI.
 
-Nenhum bug real encontrado nesta fase pelo teste automatizado ou manual —
+Nenhum bug real encontrado na fase 2 pelo teste automatizado ou manual —
 diferente da 1c (que teve 2). A única correção foi no próprio teste: um
 checksum reimplementado no servidor falso do Playwright que divergia do
 real num detalhe (ver "Lição de fidelidade de teste-duplo" acima), corrigido
 reusando `computeChecksum` de verdade em vez de reescrevê-lo.
 
-Ainda não tem: Enter abre detalhe, T abre triagem (ambos sem destino até a
-fase 3), modo triagem, delegação com pessoas, histórico, PWA (manifest,
-service worker, share target). Fases em
-`docs/prompt-matriz-eisenhower.md`, seção 11.
+Fase 3 concluída: modo triagem (docs seção 5.3 — item grande, mini matriz
+2x2, teclas `1`-`4`/`E`/`S`/`Esc`, "Me ajude a decidir", chips de data após
+Agendar, "Para quem?" com autocomplete após Delegar, barra de progresso,
+tela de caixa zerada); data contextual por quadrante (docs 5.4 — "Prazo" em
+Q1, "Agendada para" + selos "Hoje"/"Atrasada" + ordenação por data + "sem
+data" em âmbar + "Bloquear na agenda" em Q2, "Cobrar em" + "Para quem" +
+estados "a delegar"/"aguardando Fulano" + "Copiar mensagem de delegação" +
+selo "Cobrar hoje" em Q3, esmaecimento + arquivamento automático na virada
+do dia + "n eliminadas esta semana" em Q4); faixa "Hoje" clicável (docs
+5.1); painel de detalhe com autosave e linha do tempo (docs 5.5); histórico
+pesquisável com restaurar (docs 5.9); atalhos `Enter` e `T` completados
+(docs 5.6); 3 testes Playwright do fluxo de triagem no CI.
+
+Dois bugs reais encontrados e corrigidos nesta fase (detalhados acima): o
+botão "Mover" ficava permanentemente invisível no painel de detalhe e no
+histórico (achado no teste manual), e o último item da triagem podia pular
+o passo de data/delegação por uma corrida entre o esvaziamento da caixa e
+uma releitura assíncrona do Dexie (achado pelo Playwright, não pelo teste
+manual — o padrão clássico desta fase inteira: bugs de timing/corrida
+aparecem no automatizado, bugs puramente visuais aparecem na mão).
+
+Ainda não tem: PWA (manifest, service worker, share target, atalho de
+captura), revisão semanal e polimento visual/acessibilidade (fase 5). Fases
+em `docs/prompt-matriz-eisenhower.md`, seção 11.

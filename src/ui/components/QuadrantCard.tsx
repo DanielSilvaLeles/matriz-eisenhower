@@ -12,10 +12,12 @@ export interface QuadrantCardProps {
   quadrant: QuadrantMeta
   /** Tarefas abertas no quadrante. */
   openCount: number
+  /** Reforco positivo no rodape, ex.: "3 eliminadas esta semana" (docs secao 5.4, so Q4). */
+  footerNote?: string | null
   children: ReactNode
 }
 
-export function QuadrantCard({ quadrant, openCount, children }: QuadrantCardProps) {
+export function QuadrantCard({ quadrant, openCount, footerNote, children }: QuadrantCardProps) {
   const style = QUADRANT_STYLES[quadrant.id]
   const Icon = style.icon
 
@@ -81,6 +83,10 @@ export function QuadrantCard({ quadrant, openCount, children }: QuadrantCardProp
           <output className="block text-xs text-warn">
             Quadrante cheio: conclua, divida ou reclassifique.
           </output>
+        ) : null}
+
+        {footerNote !== null && footerNote !== undefined ? (
+          <p className="text-xs text-text-subtle">{footerNote}</p>
         ) : null}
       </div>
     </section>

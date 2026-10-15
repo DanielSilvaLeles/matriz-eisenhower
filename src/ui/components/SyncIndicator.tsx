@@ -61,7 +61,10 @@ export function SyncIndicator() {
         {label}
       </span>
       {pendingLabel !== null && status.kind !== 'syncing' ? (
-        <span className="rounded-full bg-warn-soft px-1.5 text-warn tabular-nums">
+        <span
+          data-pending-badge=""
+          className="rounded-full bg-warn-soft px-1.5 text-warn tabular-nums"
+        >
           {pendingCount}
         </span>
       ) : null}

@@ -92,8 +92,13 @@ test('configura, sincroniza e confirma - teclado e botao', async ({ page }) => {
   // aqui, logo após fechar as Configurações, o status ainda é
   // "não configurado" (o sync automático de abertura rodou antes de haver
   // URL/token) - só o contador numérico ao lado do botão aparece já.
+  // `data-pending-badge` (em vez de combinar com o texto "1") porque o
+  // resumo "Confirmado" também contém dígitos ("1 enviada, 0 recebidas") -
+  // bater por texto pegava esse "1" depois da sincronização e nunca
+  // chegava a zero.
   const indicator = page.getByRole('status')
-  await expect(indicator.locator('span', { hasText: '1' })).toBeVisible()
+  const pendingBadge = indicator.locator('[data-pending-badge]')
+  await expect(pendingBadge).toHaveText('1')
 
   // "Sincronizar agora" pelo botão do indicador.
   await page.getByRole('button', { name: 'Sincronizar agora' }).click()
@@ -103,8 +108,8 @@ test('configura, sincroniza e confirma - teclado e botao', async ({ page }) => {
   })
   expect(server.revisionNow()).toBe(1)
 
-  // A pendencia some depois de confirmado - nenhum contador numérico sobra.
-  await expect(indicator.locator('span', { hasText: '1' })).toHaveCount(0)
+  // A pendencia some depois de confirmado - nenhum contador sobra.
+  await expect(pendingBadge).toHaveCount(0)
 })
 
 test('token errado: o indicador mostra o erro especifico', async ({ page }) => {

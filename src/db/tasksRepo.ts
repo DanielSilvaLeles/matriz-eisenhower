@@ -9,8 +9,14 @@
  */
 import { positionBetween } from '@/domain/position.ts'
 import type { QuadrantId } from '@/domain/quadrant.ts'
-import type { Task } from '@/domain/schema.ts'
-import { completeTask, createTask, moveTask, reopenTask } from '@/domain/task.ts'
+import type { Task, TaskSource } from '@/domain/schema.ts'
+import {
+  completeTask,
+  createTask,
+  moveTask,
+  reopenTask,
+  reorderTask,
+} from '@/domain/task.ts'
 import { getDeviceName } from './device.ts'
 import type { MatrizDB } from './schema.ts'
 
@@ -22,20 +28,43 @@ function nowISO(): string {
   return new Date().toISOString()
 }
 
-/** Maior `position` entre as tarefas abertas de um quadrante, ou `null` se vazio. */
-async function lastOpenPosition(
-  db: MatrizDB,
-  quadrant: QuadrantId,
-): Promise<number | null> {
-  const open = await db.tasks
-    .where('[quadrant+status]')
-    .equals([quadrant, 'open'])
-    .toArray()
+/**
+ * Maior `position` entre as tarefas abertas de um quadrante - ou da caixa de
+ * entrada, se `quadrant` for `null`.
+ *
+ * `null` nao e uma chave valida de IndexedDB: `.where('[quadrant+status]')
+ * .equals([null, 'open'])` lanca `DataError` em vez de devolver vazio (e por
+ * isso um item da caixa de entrada nunca aparece no indice composto). Para
+ * `null`, a consulta cai para o indice `status` sozinho e filtra em JS -
+ * aceitavel porque a caixa de entrada, por natureza, fica pequena.
+ */
+async function lastPosition(db: MatrizDB, quadrant: QuadrantId | null): Promise<number | null> {
+  const open =
+    quadrant === null
+      ? (await db.tasks.where('status').equals('open').toArray()).filter(
+          (task) => task.quadrant === null,
+        )
+      : await db.tasks.where('[quadrant+status]').equals([quadrant, 'open']).toArray()
 
   return open.reduce<number | null>(
     (max, task) => (max === null || task.position > max ? task.position : max),
     null,
   )
+}
+
+/**
+ * Apaga de vez uma tarefa e seus eventos - usado so para desfazer uma
+ * colagem multilinha na caixa de entrada (docs secao 5.2): os itens acabaram
+ * de nascer, nunca foram triados nem sincronizados, entao remover de
+ * verdade (nao so marcar `deleted`) e seguro. Nao e uma funcao geral de
+ * excluir tarefa - essa e exclusao logica com restaurar pelo historico
+ * (fase 3), bem diferente desta.
+ */
+export function discardTask(db: MatrizDB, taskId: string): Promise<void> {
+  return db.transaction('rw', db.tasks, db.task_events, async () => {
+    await db.task_events.where('task_id').equals(taskId).delete()
+    await db.tasks.delete(taskId)
+  })
 }
 
 export class TaskNotFoundError extends Error {
@@ -46,8 +75,7 @@ export class TaskNotFoundError extends Error {
 
 /**
  * Adiciona uma tarefa direto num quadrante, no fim da lista. E o que o campo
- * "Adicionar tarefa" de cada quadrante usa (docs secao 5.1) - antes de a
- * caixa de entrada existir (fase 1c), toda captura ja nasce classificada.
+ * "Adicionar tarefa" de cada quadrante usa (docs secao 5.1).
  */
 export function addTaskToQuadrant(
   db: MatrizDB,
@@ -56,11 +84,47 @@ export function addTaskToQuadrant(
   device: string = getDeviceName(),
 ): Promise<Task> {
   return db.transaction('rw', db.tasks, db.task_events, async () => {
-    const position = positionBetween(await lastOpenPosition(db, quadrant), null)
+    const position = positionBetween(await lastPosition(db, quadrant), null)
     const now = nowISO()
 
     const { task, event } = createTask(
       { id: newId(), eventId: newId(), title, quadrant, position, device },
+      now,
+    )
+
+    await db.tasks.add(task)
+    await db.task_events.add(event)
+    return task
+  })
+}
+
+/**
+ * Adiciona um item na caixa de entrada - a porta de entrada da captura
+ * (docs secao 5.2 e 8). `title` e `tags` ja chegam interpretados por
+ * `captureItem` (src/capture.ts); esta funcao so grava.
+ */
+export function addTaskToInbox(
+  db: MatrizDB,
+  title: string,
+  tags: readonly string[],
+  source: TaskSource,
+  device: string = getDeviceName(),
+): Promise<Task> {
+  return db.transaction('rw', db.tasks, db.task_events, async () => {
+    const position = positionBetween(await lastPosition(db, null), null)
+    const now = nowISO()
+
+    const { task, event } = createTask(
+      {
+        id: newId(),
+        eventId: newId(),
+        title,
+        quadrant: null,
+        position,
+        device,
+        source,
+        tags,
+      },
       now,
     )
 
@@ -107,20 +171,19 @@ export function reopenTaskById(
 }
 
 /**
- * Move para outro quadrante, no fim da lista de destino. Ainda sem lugar na
- * interface nesta fase (arrastar e atalhos de teclado sao da fase 1c) - mas
- * ja fica pronta porque e so a camada de efeito colateral sobre moveTask,
- * ja testada no dominio.
+ * Move para outro quadrante, ou de volta para a caixa de entrada
+ * (`toQuadrant: null` - tecla `0` e opcao "Caixa de entrada" do menu
+ * "Mover para"). Sempre no fim da lista de destino.
  */
 export function moveTaskToQuadrant(
   db: MatrizDB,
   taskId: string,
-  toQuadrant: QuadrantId,
+  toQuadrant: QuadrantId | null,
   device: string = getDeviceName(),
 ): Promise<Task> {
   return db.transaction('rw', db.tasks, db.task_events, async () => {
     const existing = await getTaskOrThrow(db, taskId)
-    const position = positionBetween(await lastOpenPosition(db, toQuadrant), null)
+    const position = positionBetween(await lastPosition(db, toQuadrant), null)
     const { task, event } = moveTask(
       existing,
       toQuadrant,
@@ -130,6 +193,53 @@ export function moveTaskToQuadrant(
     )
     await db.tasks.put(task)
     await db.task_events.add(event)
+    return task
+  })
+}
+
+/**
+ * Restaura quadrante e posicao exatos de uma tarefa - so para o desfazer de
+ * uma movimentacao (src/ui/actions/moveTaskWithUndo.ts). Diferente de
+ * moveTaskToQuadrant, que sempre poe no fim da lista de destino: aqui a
+ * posicao e a exata de antes da movimentacao, para "Desfazer" devolver a
+ * tarefa ao lugar de onde ela saiu, nao ao fim da lista de origem.
+ */
+export function restoreTaskPlacement(
+  db: MatrizDB,
+  taskId: string,
+  quadrant: QuadrantId | null,
+  position: number,
+  device: string = getDeviceName(),
+): Promise<Task> {
+  return db.transaction('rw', db.tasks, db.task_events, async () => {
+    const existing = await getTaskOrThrow(db, taskId)
+    const { task, event } = moveTask(
+      existing,
+      quadrant,
+      position,
+      { eventId: newId(), device },
+      nowISO(),
+    )
+    await db.tasks.put(task)
+    await db.task_events.add(event)
+    return task
+  })
+}
+
+/**
+ * Reordena dentro do mesmo quadrante (arrastar para cima/baixo na mesma
+ * lista). Sem evento - ver reorderTask no dominio.
+ */
+export function reorderTaskPosition(
+  db: MatrizDB,
+  taskId: string,
+  position: number,
+  device: string = getDeviceName(),
+): Promise<Task> {
+  return db.transaction('rw', db.tasks, async () => {
+    const existing = await getTaskOrThrow(db, taskId)
+    const task = reorderTask(existing, position, device, nowISO())
+    await db.tasks.put(task)
     return task
   })
 }

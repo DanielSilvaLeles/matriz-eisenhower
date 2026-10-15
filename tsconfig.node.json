@@ -14,8 +14,15 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true,
     "paths": { "@/*": ["./src/*"] },
     "types": ["node"]
   },
-  "include": ["vite.config.ts", "src/**/*.test.ts", "src/**/*.test.tsx"]
+  "include": [
+    "vite.config.ts",
+    "playwright.config.ts",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "e2e/**/*.ts"
+  ]
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { completeTask, createTask, moveTask, reopenTask } from './task.ts'
+import { completeTask, createTask, moveTask, reopenTask, reorderTask } from './task.ts'
 import type { Task } from './schema.ts'
 
 const NOW = '2026-10-15T10:00:00.000Z'
@@ -119,6 +119,33 @@ describe('moveTask', () => {
     expect(() =>
       moveTask(task, 'q1', 1500, { eventId: 'event-4', device: 'celular' }, LATER),
     ).toThrow()
+  })
+
+  it('aceita devolver para a caixa de entrada (quadrante nulo)', () => {
+    const { task: backToInbox, event } = moveTask(
+      task,
+      null,
+      500,
+      { eventId: 'event-9', device: 'celular' },
+      LATER,
+    )
+    expect(backToInbox.quadrant).toBeNull()
+    expect(event).toMatchObject({ from_quadrant: 'q1', to_quadrant: null })
+  })
+})
+
+describe('reorderTask', () => {
+  const task: Task = createTask(newTaskInput(), NOW).task
+
+  it('troca so a posicao e o aparelho, sem gerar evento', () => {
+    const reordered = reorderTask(task, 5000, 'celular', LATER)
+
+    expect(reordered.position).toBe(5000)
+    expect(reordered.device).toBe('celular')
+    expect(reordered.updated_at).toBe(LATER)
+    // Nada mais muda.
+    expect(reordered.quadrant).toBe(task.quadrant)
+    expect(reordered.title).toBe(task.title)
   })
 })
 

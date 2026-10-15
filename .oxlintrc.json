@@ -35,13 +35,34 @@
 
     // Desligada: marcacao JSX infla a contagem de linhas. Quebrar um componente
     // para agradar um contador de linhas piora a leitura.
-    "max-lines-per-function": "off"
+    "max-lines-per-function": "off",
+
+    // O padrao (10) e baixo demais para um componente container que liga
+    // dominio + banco + acoes + varios filhos - exatamente o papel de
+    // QuadrantSection e InboxPanel. 16 ainda pega import excessivo de verdade.
+    "import/max-dependencies": ["warn", { "max": 16 }],
+
+    // Em conflito direto com typescript/consistent-return quando uma funcao
+    // tipada como `=> T | undefined` tem varios pontos de saida (os
+    // callbacks de accessibility.announcements do dnd-kit, por exemplo):
+    // misturar `return` nu com `return valor` reprova o consistent-return,
+    // mas `return undefined` explicito reprova esta regra. Preferimos a
+    // correcao de tipo de retorno (consistent-return) e desligamos esta.
+    "unicorn/no-useless-undefined": "off"
   },
   "ignorePatterns": ["dist", "node_modules", "coverage"],
   "overrides": [
     {
       "files": ["**/*.test.ts", "**/*.test.tsx", "vite.config.ts"],
       "env": { "node": true }
+    },
+    {
+      // Testes Playwright: codigo Node/browser-script, nao componentes React -
+      // a regra de hooks falsa-positiva no `use` que e o proprio parametro de
+      // fixture do Playwright, nao o useX do React.
+      "files": ["e2e/**", "playwright.config.ts"],
+      "env": { "node": true },
+      "rules": { "react-hooks/rules-of-hooks": "off" }
     }
   ]
 }

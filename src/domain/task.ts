@@ -31,6 +31,7 @@ export interface NewTaskInput {
   readonly device: string
   readonly source?: TaskSource
   readonly context?: TaskContext
+  readonly tags?: readonly string[]
 }
 
 /** Cria uma tarefa nova e o evento `created` correspondente. */
@@ -51,7 +52,7 @@ export function createTask(input: NewTaskInput, now: string): TaskMutationResult
     delegated_to: null,
     delegation_context: null,
     expected_outcome: null,
-    tags: [],
+    tags: input.tags ? [...input.tags] : [],
     source: input.source ?? 'web',
     context: input.context ?? 'work',
     created_at: now,
@@ -80,14 +81,15 @@ export interface MutationParams {
 }
 
 /**
- * Move a tarefa para outro quadrante. Para reordenar dentro do mesmo
- * quadrante (so a `position` muda), isso nao e uma movimentacao - a funcao
- * recusa a chamada para deixar o engano visivel em vez de gerar um evento
- * "moved" sem significado no historico.
+ * Move a tarefa para outro quadrante, ou de volta para a caixa de entrada
+ * (`toQuadrant: null` - e o que a tecla `0` e a opcao "Caixa de entrada" do
+ * menu "Mover para" fazem). Para reordenar dentro do mesmo quadrante (so a
+ * `position` muda), isso nao e uma movimentacao - use `reorderTask`, que nao
+ * gera evento.
  */
 export function moveTask(
   task: Task,
-  toQuadrant: QuadrantId,
+  toQuadrant: QuadrantId | null,
   position: number,
   params: MutationParams,
   now: string,
@@ -95,7 +97,7 @@ export function moveTask(
   if (toQuadrant === task.quadrant) {
     throw new Error(
       'moveTask e para trocar de quadrante. Para reordenar dentro do mesmo ' +
-        'quadrante, atualize a position diretamente - nao gera evento.',
+        'quadrante, use reorderTask - nao gera evento.',
     )
   }
 
@@ -118,6 +120,15 @@ export function moveTask(
   }
 
   return { task: updated, event }
+}
+
+/**
+ * Reordena dentro do mesmo quadrante (ou da caixa de entrada): so a
+ * `position` muda. Sem evento - um "moved" sem troca de quadrante nao diz
+ * nada de util na linha do tempo (docs secao 5.5), so adicionaria ruido.
+ */
+export function reorderTask(task: Task, position: number, device: string, now: string): Task {
+  return { ...task, position, updated_at: now, device }
 }
 
 /** Marca como concluida: risca na lista e recolhe em "Concluidas hoje". */

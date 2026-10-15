@@ -9,10 +9,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MatrizDB } from './schema.ts'
 import {
   TaskNotFoundError,
+  addTaskToInbox,
   addTaskToQuadrant,
   completeTaskById,
   moveTaskToQuadrant,
   reopenTaskById,
+  reorderTaskPosition,
 } from './tasksRepo.ts'
 
 let db: MatrizDB
@@ -132,6 +134,71 @@ describe('moveTaskToQuadrant', () => {
 
   it('lanca TaskNotFoundError para um id que nao existe', async () => {
     await expect(moveTaskToQuadrant(db, 'inexistente', 'q2')).rejects.toBeInstanceOf(
+      TaskNotFoundError,
+    )
+  })
+
+  it('devolve para a caixa de entrada quando o destino e null', async () => {
+    const task = await addTaskToQuadrant(db, 'q1', 'Revisar PR')
+
+    const backToInbox = await moveTaskToQuadrant(db, task.id, null, 'celular')
+
+    expect(backToInbox.quadrant).toBeNull()
+
+    const inbox = (await db.tasks.where('status').equals('open').toArray()).filter(
+      (t) => t.quadrant === null,
+    )
+    expect(inbox.map((t) => t.id)).toContain(task.id)
+  })
+})
+
+describe('addTaskToInbox', () => {
+  it('grava com quadrant nulo e o evento "created" com destino nulo', async () => {
+    const task = await addTaskToInbox(db, 'Pensar na revisao anual', [], 'web')
+
+    expect(task.quadrant).toBeNull()
+    expect(task.status).toBe('open')
+
+    const events = await db.task_events.where('task_id').equals(task.id).toArray()
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ type: 'created', to_quadrant: null })
+  })
+
+  it('grava as tags recebidas e o source informado', async () => {
+    const task = await addTaskToInbox(db, 'Com tag', ['fornecedor'], 'pwa')
+    expect(task.tags).toEqual(['fornecedor'])
+    expect(task.source).toBe('pwa')
+  })
+
+  it('cada item novo fica depois do anterior na ordem de exibicao', async () => {
+    const first = await addTaskToInbox(db, 'Primeiro', [], 'web')
+    const second = await addTaskToInbox(db, 'Segundo', [], 'web')
+    expect(first.position).toBeLessThan(second.position)
+  })
+
+  it('nao mistura a posicao da caixa de entrada com a de um quadrante', async () => {
+    await addTaskToQuadrant(db, 'q1', 'Em Q1')
+    const inboxTask = await addTaskToInbox(db, 'Na caixa', [], 'web')
+    expect(inboxTask.quadrant).toBeNull()
+  })
+})
+
+describe('reorderTaskPosition', () => {
+  it('troca so a posicao, sem gerar evento novo', async () => {
+    const task = await addTaskToQuadrant(db, 'q1', 'Revisar PR')
+
+    const reordered = await reorderTaskPosition(db, task.id, 42, 'celular')
+
+    expect(reordered.position).toBe(42)
+    expect(reordered.device).toBe('celular')
+
+    const events = await db.task_events.where('task_id').equals(task.id).toArray()
+    expect(events).toHaveLength(1)
+    expect(events[0]?.type).toBe('created')
+  })
+
+  it('lanca TaskNotFoundError para um id que nao existe', async () => {
+    await expect(reorderTaskPosition(db, 'inexistente', 10)).rejects.toBeInstanceOf(
       TaskNotFoundError,
     )
   })

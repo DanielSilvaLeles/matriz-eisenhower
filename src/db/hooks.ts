@@ -69,3 +69,35 @@ export function useCompletedToday(quadrant: QuadrantId): readonly Task[] {
     [tasks, todayStart],
   )
 }
+
+/**
+ * Itens da caixa de entrada, do mais antigo para o mais novo - e a ordem que
+ * faz sentido para "ha quanto tempo esta parado" (docs secao 5.2): o que
+ * espera ha mais tempo aparece primeiro.
+ *
+ * `null` nao e chave valida de indice composto (ver a mesma nota em
+ * src/db/tasksRepo.ts), entao a consulta usa o indice `status` sozinho e
+ * filtra `quadrant === null` em JS - tudo bem, a caixa de entrada e pequena
+ * por natureza (a meta e zera-la todo dia, docs secao 2).
+ */
+export function useInboxTasks(): readonly Task[] {
+  const db = getDB()
+  const tasks = useLiveQuery(
+    () => db.tasks.where('status').equals('open').toArray(),
+    [],
+    EMPTY_TASKS,
+  )
+
+  return useMemo(
+    () =>
+      tasks
+        .filter((task) => task.quadrant === null)
+        .toSorted((a, b) => a.created_at.localeCompare(b.created_at)),
+    [tasks],
+  )
+}
+
+/** Quantidade de itens na caixa de entrada - o badge do painel. */
+export function useInboxCount(): number {
+  return useInboxTasks().length
+}

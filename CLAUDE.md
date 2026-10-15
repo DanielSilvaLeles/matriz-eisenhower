@@ -494,6 +494,37 @@ preso, solta o gate, e confirma que as duas tarefas sobrevivem e que a
 tarefa concorrente continua marcada pendente (não foi sincronizada por
 este ciclo — vai no próximo).
 
+### Mudança pedida pelo usuário: titulo da tarefa abre detalhe, so o checkbox conclui
+
+`TaskRow.tsx` envolvia checkbox e titulo no mesmo `<label>` — padrao HTML
+nativo onde clicar em **qualquer parte** do label (inclusive o titulo)
+ativa o controle associado, nesse caso o checkbox. Na pratica isso
+significava clicar no titulo da tarefa, so para ler ou abrir o detalhe,
+concluia a tarefa por engano. Pedido explicito do usuario: separar as duas
+acoes. Corrigido removendo o `<label>` compartilhado — o checkbox ficou
+solto (so ele conclui/reabre), e o titulo virou seu **proprio** `<button>`
+que chama `selectedTaskIdStore.set(task.id)`, a mesma acao do botao
+"Ver detalhe" (icone `PanelRight`) mais a frente na linha, so que como alvo
+principal em vez de um icone secundario que só aparece em hover. O alvo de
+toque de 48px (docs secao 5.7) migrou do `<label>` para esse novo botao
+(`min-h-12`), preservando a área clicável original.
+
+O botao do titulo nao leva `aria-label` — o nome acessivel vem do proprio
+texto visivel dentro dele, para nao duplicar a mesma frase
+("Abrir detalhe de ...") em dois controles com a mesma acao na mesma linha
+(o botao de icone `PanelRight` continua com `aria-label`, por ser
+icone-only).
+
+Teste de regressao em `e2e/add-and-move-task.spec.ts` ("clicar no titulo
+abre o detalhe..."): clica no titulo, confirma que o dialogo de detalhe
+abre, fecha com `Escape`, confirma que o checkbox continua desmarcado, e só
+então marca o checkbox e confirma que a tarefa foi concluída de verdade.
+**Achado ao escrever esse teste:** Radix marca o resto da pagina
+`aria-hidden` enquanto o dialogo esta aberto — qualquer asserção sobre o
+checkbox por tras dele precisa vir depois do `Escape`, senao
+`getByRole('checkbox', ...)` nao encontra nada (nao é "nao achou porque
+nao existe", é "nao achou porque esta fora da arvore de acessibilidade").
+
 ### Triagem, detalhe e histórico (fase 3) — dois bugs reais encontrados
 
 **Bug real #1 — o botão "Mover" ficava invisível fora de uma `TaskRow`.**

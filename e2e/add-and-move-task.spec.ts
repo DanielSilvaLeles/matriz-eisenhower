@@ -121,3 +121,33 @@ test('reordena por arraste dentro do mesmo quadrante', async ({ page }) => {
 
   await expect(list.locator('[data-task-id]').first()).toContainText('Segunda')
 })
+
+test('clicar no titulo abre o detalhe, so o checkbox conclui', async ({ page }) => {
+  const main = page.locator('main')
+  const campo = main.getByPlaceholder('Adicionar tarefa').first()
+  await campo.fill('Tarefa para abrir detalhe')
+  await campo.press('Enter')
+
+  await main.getByText('Tarefa para abrir detalhe').click()
+
+  await expect(page.getByRole('dialog')).toBeVisible()
+
+  // Radix marca o resto da pagina aria-hidden enquanto o dialogo esta
+  // aberto - fecha antes de checar o estado do checkbox por tras dele.
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toBeHidden()
+
+  // Nao concluiu ao clicar no titulo - o checkbox continua desmarcado.
+  await expect(
+    main.getByRole('checkbox', { name: 'Concluir "Tarefa para abrir detalhe"' }),
+  ).not.toBeChecked()
+
+  await main.getByRole('checkbox', { name: 'Concluir "Tarefa para abrir detalhe"' }).check()
+
+  // Concluida, a tarefa vai pro rodape colapsado "Concluidas hoje" - abre
+  // pra conferir o checkbox por tras do <details> nativo.
+  await main.getByText(/Concluídas hoje/u).click()
+  await expect(
+    main.getByRole('checkbox', { name: 'Reabrir "Tarefa para abrir detalhe"' }),
+  ).toBeChecked()
+})

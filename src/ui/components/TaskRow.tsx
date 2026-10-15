@@ -117,12 +117,15 @@ export function TaskRow({ task, quadrant, today, accentClass, onToggle, onMove }
       )}
 
       {/*
-       * Checkbox e titulo dentro do mesmo <label>: a area clicavel/tocavel
-       * vira a linha inteira, nao so o quadradinho de 16px - e o alvo de
-       * toque de pelo menos 48px no celular (docs secao 5.7), sem inflar o
-       * checkbox em si (que no desktop continua compacto).
+       * Checkbox e titulo NAO ficam no mesmo <label> de proposito: um
+       * <label> faria clicar em QUALQUER lugar da linha (inclusive no
+       * titulo) concluir a tarefa, e a pessoa so quer concluir ao marcar o
+       * quadradinho mesmo. O titulo e seu proprio botao, que abre o detalhe
+       * - a mesma acao do botao "Ver detalhe" mais a frente na linha, so
+       * que como alvo principal de toque/clique em vez de um icone
+       * secundario.
        */}
-      <label className="flex min-h-12 min-w-0 flex-1 cursor-pointer items-center gap-2 sm:min-h-0">
+      <div className="flex min-h-12 min-w-0 flex-1 items-center gap-2 sm:min-h-0">
         <input
           type="checkbox"
           checked={struck}
@@ -135,20 +138,37 @@ export function TaskRow({ task, quadrant, today, accentClass, onToggle, onMove }
           data-task-anchor
           className={cn('size-4 shrink-0 cursor-pointer', accentClass)}
         />
-        <span className="min-w-0 flex-1">
-          <span
-            className={cn(
-              'block truncate text-[13px] transition-[opacity,color] duration-150',
-              struck ? 'text-text-subtle line-through opacity-70' : 'text-text',
+        <button
+          type="button"
+          onClick={() => {
+            selectedTaskIdStore.set(task.id)
+          }}
+          // Sem aria-label: o nome acessivel vem do proprio texto do
+          // titulo, visivel dentro do botao - repetir "Abrir detalhe de
+          // ..." aqui so duplicaria o botao de icone (PanelRight) mais
+          // adiante na linha, que tem a mesma acao e precisa de aria-label
+          // porque o dele e so um icone sem texto.
+          title="Abrir detalhe"
+          // O alvo de toque de pelo menos 48px no celular (docs secao 5.7)
+          // vem deste botao, nao mais do <label> - min-h-12 preenche a
+          // mesma altura da linha.
+          className="flex min-h-12 min-w-0 flex-1 cursor-pointer items-center text-left sm:min-h-0"
+        >
+          <span className="min-w-0 flex-1">
+            <span
+              className={cn(
+                'block truncate text-[13px] transition-[opacity,color] duration-150',
+                struck ? 'text-text-subtle line-through opacity-70' : 'text-text',
+              )}
+            >
+              {task.title}
+            </span>
+            {status === null ? null : (
+              <span className="block truncate text-[11px] text-text-subtle">{status}</span>
             )}
-          >
-            {task.title}
           </span>
-          {status === null ? null : (
-            <span className="block truncate text-[11px] text-text-subtle">{status}</span>
-          )}
-        </span>
-      </label>
+        </button>
+      </div>
 
       {missingDate ? (
         <span className="shrink-0 rounded-full bg-warn-soft px-1.5 text-[11px] text-warn">

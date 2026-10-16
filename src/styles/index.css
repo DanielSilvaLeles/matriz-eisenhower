@@ -6,6 +6,20 @@
   html {
     background-color: var(--color-canvas);
     color-scheme: light;
+    /*
+     * Rede de seguranca: a pagina nunca deveria precisar de rolagem
+     * horizontal (docs secao 5.7, "usar em 360px"), mas um elemento
+     * isolado passando do limite - mesmo escondido atras de um dialogo,
+     * mesmo aria-hidden - alarga o layout viewport inteiro em navegadores
+     * moveis. Isso desalinha tudo que usa `100vw`/`right-0` (o painel de
+     * detalhe, por exemplo, que passava a abrir cortado e com a pagina
+     * inteira parecendo "zoom errado" - bug real relatado pelo usuario,
+     * causa raiz era o cabecalho mobile estourando a largura, ver
+     * CLAUDE.md). `overflow-x: hidden` aqui nao concerta o estouro em si -
+     * so garante que UM estouro futuro nunca mais contagia a pagina
+     * inteira outra vez.
+     */
+    overflow-x: hidden;
   }
 
   html.dark {
@@ -21,6 +35,7 @@
     line-height: 1.45;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    overflow-x: hidden;
   }
 
   /*

@@ -884,6 +884,62 @@ substituto) escapou disso. `aria-live` já vinha dos elementos `<output>`
 mudança nova foi necessária nessas frentes - só a auditoria confirmou que
 seguiam valendo depois de três fases de componentes novos em cima.
 
+### Bug real em produção: cabeçalho estourava a largura nos celulares comuns, e isso "vazava" pra página inteira
+
+**Relatado pelo usuário com duas fotos do celular**: o ícone do canto
+superior direito do cabeçalho não aparecia, e ao abrir o detalhe de uma
+tarefa "o zoom da página fica diferente, cortando um pedaço da página à
+direita". O próprio usuário suspeitou, corretamente, que os dois eram "o
+mesmo problema".
+
+**Causa raiz confirmada com um iframe de largura real (393/360/320px)
+embutido numa aba do Chrome** - `resize_window` não redimensiona de
+verdade neste ambiente, então a única forma confiável de testar uma
+largura de celular real foi um `<iframe>` com `style.width` fixo apontando
+pro servidor de dev, inspecionado com `javascript_tool`/`computer:zoom`:
+`AppHeaderActions.tsx` (indicador de sync + histórico + configurações +
+tema) não tinha `flex-wrap` nem conseguia encolher (`shrink-0`) - nos
+celulares mais comuns (320-412px), os quatro itens juntos simplesmente não
+cabem numa linha só (o `SyncIndicator` sozinho já passa de 240px só com
+"Sincronização não configurada"; bem mais com o resumo depois de
+confirmar). Sem quebrar linha nem encolher, o último botão
+(`ThemeToggle`) ficava **fisicamente fora do viewport** - não escondido,
+inexistente na tela, sem aviso nenhum.
+
+**O efeito colateral inesperado, que explica o segundo sintoma:** esse
+único elemento estourando a largura (mesmo escondido atrás do overlay do
+diálogo de detalhe, mesmo `aria-hidden`) alargava o `scrollWidth` da
+página inteira além do `clientWidth` do dispositivo. Confirmado: no
+reproduzido via iframe, `document.documentElement.scrollWidth` ficava
+maior que `clientWidth` mesmo com o painel de detalhe fechado, e o próprio
+painel de detalhe (que sozinho não tinha overflow nenhum - `w-[min(26rem,
+100vw)]` funciona certinho isolado) herdava esse viewport já alargado -
+exatamente o "zoom errado, cortando a página à direita" que a foto
+mostrava. Não existia nenhuma rede de segurança (`overflow-x: hidden`) em
+`html`/`body` contendo esse tipo de vazamento.
+
+**Correção, em duas partes:**
+1. `AppHeaderActions.tsx`: `shrink-0` → `min-w-0` + `flex-wrap` +
+   `justify-end`. `min-w-0` é o que importa de verdade - sem ele, mesmo
+   com `flex-wrap`, a `div` (sozinha na própria linha depois do cabeçalho
+   quebrar) continuava do tamanho do seu conteúdo em vez de encolher até a
+   largura real disponível; sem a CAIXA encolher, o `flex-wrap` de dentro
+   nunca tinha motivo pra quebrar os filhos. Agora, nos celulares
+   estreitos, os botões de ícone quebram pra uma segunda linha (sempre
+   visíveis, nunca cortados) em vez de telas largas, onde tudo continua
+   numa linha só como antes.
+2. `src/styles/index.css`: `overflow-x: hidden` em `html` e `body` - não
+   concerta um estouro em si, é a rede de segurança para que UM elemento
+   que passe da largura (mesmo um futuro, mesmo atrás de um diálogo) nunca
+   mais alargue o viewport de layout inteiro de novo.
+
+**Teste de regressão** em `e2e/responsive.spec.ts` (viewport 320px, o
+menor que o app testa): confirma os quatro botões do cabeçalho visíveis
+(`toBeVisible`, não só presentes no DOM) e `scrollWidth <= clientWidth`
+tanto na tela principal quanto com o painel de detalhe aberto - confirmado
+que os dois testes **falham** (64px e 90px de estouro) sem a correção e
+passam com ela.
+
 ## Segurança (o repositório é público)
 
 - **Nenhum segredo no código, nos testes ou no histórico do git.**

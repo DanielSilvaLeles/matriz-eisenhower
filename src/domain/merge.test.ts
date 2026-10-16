@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mergeState, type SyncableState } from './merge.ts'
-import type { Person, Task, TaskEvent } from './schema.ts'
+import type { Note, Person, Task, TaskEvent } from './schema.ts'
 
 const NOW = '2026-10-15T12:00:00.000Z'
 
@@ -51,8 +51,23 @@ function person(overrides: Partial<Person> = {}): Person {
   }
 }
 
+function note(overrides: Partial<Note> = {}): Note {
+  return {
+    id: 'note-1',
+    title: null,
+    body: 'Texto da reuniao',
+    tags: [],
+    created_at: '2026-10-01T08:00:00.000Z',
+    updated_at: '2026-10-01T08:00:00.000Z',
+    deleted: false,
+    deleted_at: null,
+    device: 'pc empresa',
+    ...overrides,
+  }
+}
+
 function state(overrides: Partial<SyncableState> = {}): SyncableState {
-  return { tasks: [], taskEvents: [], people: [], ...overrides }
+  return { tasks: [], taskEvents: [], people: [], notes: [], ...overrides }
 }
 
 describe('mergeState', () => {
@@ -204,6 +219,41 @@ describe('mergeState', () => {
 
     expect(resultado.tasks.map((t) => t.id).toSorted()).toEqual(['t1', 't2'])
     expect(resultado.people.map((p) => p.id).toSorted()).toEqual(['p1', 'p2'])
+  })
+
+  // `notes` entra na MESMA uniao+desempate que `tasks` ja usa (ver
+  // src/domain/merge.ts) - estes dois testes confirmam que o caminho
+  // generico (sem edicao concorrente) funciona igual para anotacoes. A
+  // deteccao de conflito de verdade (que gera copia em vez de escolher um
+  // vencedor) e testada em src/domain/noteMerge.test.ts.
+  it('anotacoes: exclusao vs edicao usa a mesma regra de tarefas (exclusao mais recente vence)', () => {
+    const editadaAntes = note({
+      body: 'Ainda existe',
+      updated_at: '2026-10-15T08:00:00.000Z',
+      device: 'pc empresa',
+    })
+    const apagadaDepois = note({
+      deleted: true,
+      deleted_at: '2026-10-15T09:00:00.000Z',
+      updated_at: '2026-10-15T09:00:00.000Z',
+      device: 'celular',
+    })
+
+    const resultado = mergeState(
+      state({ notes: [editadaAntes] }),
+      state({ notes: [apagadaDepois] }),
+      NOW,
+    )
+
+    expect(resultado.notes[0]?.deleted).toBe(true)
+  })
+
+  it('anotacoes: tombstone com mais de 30 dias some da mesclagem', () => {
+    const tombstoneVelho = note({ deleted: true, updated_at: '2026-08-01T00:00:00.000Z' })
+
+    const resultado = mergeState(state({ notes: [tombstoneVelho] }), state(), NOW)
+
+    expect(resultado.notes).toHaveLength(0)
   })
 })
 

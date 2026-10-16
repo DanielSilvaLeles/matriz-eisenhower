@@ -12,12 +12,13 @@
  * `apps-script/Code.gs` repete esta mesma logica em Apps Script Language, e
  * `testChecksum()` la existe so para comparar contra o fixture daqui.
  */
-import type { Person, Task, TaskEvent } from './schema.ts'
+import type { Note, Person, Task, TaskEvent } from './schema.ts'
 
 export interface ChecksumContents {
   readonly tasks: readonly Task[]
   readonly taskEvents: readonly TaskEvent[]
   readonly people: readonly Person[]
+  readonly notes: readonly Note[]
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -44,13 +45,30 @@ function byId(a: { id: string }, b: { id: string }): number {
   return a.id.localeCompare(b.id)
 }
 
-/** JSON canonico e deterministico: mesmo conteudo sempre produz o mesmo texto. */
-export function canonicalJSON(contents: ChecksumContents): string {
-  const payload = {
-    tasks: contents.tasks.toSorted(byId),
-    task_events: contents.taskEvents.toSorted(byId),
-    people: contents.people.toSorted(byId),
-  }
+/**
+ * `includeNotes: false` (extensão "Anotações", docs/prompt-anotacoes.md
+ * seção 1.6 - "compatibilidade com o script antigo"): omite a chave
+ * `notes` por completo, não só manda `[]` - é exatamente o JSON canonico
+ * que este arquivo produzia ANTES desta extensão (um script antigo, que
+ * nunca ouviu falar de anotações, calcula o checksum sem essa chave).
+ * `[]` apareceria como `"notes":[]` no JSON e mudaria o hash mesmo sem
+ * nenhuma anotação existir - o motor de sync usa este modo so quando
+ * detecta, pelo `capabilities` do `ping`/`pull`, que está falando com um
+ * script que ainda não foi reimplantado com esta extensão.
+ */
+export function canonicalJSON(contents: ChecksumContents, includeNotes = true): string {
+  const payload = includeNotes
+    ? {
+        tasks: contents.tasks.toSorted(byId),
+        task_events: contents.taskEvents.toSorted(byId),
+        people: contents.people.toSorted(byId),
+        notes: contents.notes.toSorted(byId),
+      }
+    : {
+        tasks: contents.tasks.toSorted(byId),
+        task_events: contents.taskEvents.toSorted(byId),
+        people: contents.people.toSorted(byId),
+      }
   return JSON.stringify(sortKeysDeep(payload))
 }
 
@@ -65,8 +83,8 @@ function toHex(bytes: Uint8Array): string {
  * `crypto.subtle` (WebCrypto) so expoe uma API baseada em Promise - mesmo
  * sendo um calculo deterministico, nao da para fingir que e sincrono.
  */
-export async function computeChecksum(contents: ChecksumContents): Promise<string> {
-  const json = canonicalJSON(contents)
+export async function computeChecksum(contents: ChecksumContents, includeNotes = true): Promise<string> {
+  const json = canonicalJSON(contents, includeNotes)
   const bytes = new TextEncoder().encode(json)
   const digest = await crypto.subtle.digest('SHA-256', bytes)
   return toHex(new Uint8Array(digest))

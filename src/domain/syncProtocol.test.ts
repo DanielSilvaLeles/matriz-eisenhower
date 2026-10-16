@@ -13,7 +13,7 @@ describe('syncRequestSchema', () => {
       action: 'push',
       baseRevision: 3,
       allowShrink: true,
-      data: { schemaVersion: 1, tasks: [], task_events: [], people: [] },
+      data: { schemaVersion: 1, tasks: [], task_events: [], people: [], notes: [] },
     })
     expect(result.success).toBe(true)
   })
@@ -27,6 +27,10 @@ describe('syncRequestSchema', () => {
       syncRequestSchema.safeParse({ token: 'x', action: 'apagar_tudo' }).success,
     ).toBe(false)
   })
+
+  it('aceita um status, so com token e action (extensao Anotações, docs secao 6.3)', () => {
+    expect(syncRequestSchema.safeParse({ token: 'segredo', action: 'status' }).success).toBe(true)
+  })
 })
 
 describe('syncResponseSchema', () => {
@@ -35,7 +39,7 @@ describe('syncResponseSchema', () => {
       ok: true,
       revision: 5,
       checksum: 'abc123',
-      data: { schemaVersion: 1, tasks: [], task_events: [], people: [] },
+      data: { schemaVersion: 1, tasks: [], task_events: [], people: [], notes: [] },
     })
     expect(result.success).toBe(true)
   })
@@ -53,5 +57,10 @@ describe('syncResponseSchema', () => {
 
   it('recusa sucesso sem os campos obrigatorios', () => {
     expect(syncResponseSchema.safeParse({ ok: true }).success).toBe(false)
+  })
+
+  it('aceita uma resposta de status, sem `data` (extensao Anotações, docs secao 6.3)', () => {
+    const result = syncResponseSchema.safeParse({ ok: true, revision: 5, checksum: 'abc123' })
+    expect(result.success).toBe(true)
   })
 })

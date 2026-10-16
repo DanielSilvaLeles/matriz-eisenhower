@@ -10,9 +10,12 @@
  * Depois de colar este arquivo, rode `setupToken` uma vez (menu Executar).
  *
  * Protocolo: tudo por POST, `Content-Type: text/plain`, corpo JSON —
- * `{ token, action: "ping"|"pull"|"push", baseRevision?, data?, allowShrink? }`.
- * Resposta sempre `{ ok: true, revision, checksum, data }` ou
+ * `{ token, action: "ping"|"status"|"pull"|"push", baseRevision?, data?, allowShrink? }`.
+ * Resposta sempre `{ ok: true, revision, checksum, data? }` ou
  * `{ ok: false, error: "unauthorized"|"conflict"|"invalid"|"busy"|"server" }`.
+ * `data` fica ausente so na resposta de `status` (extensão "Anotações",
+ * docs/prompt-anotacoes.md seção 6.3) — so revision+checksum, pra decidir
+ * se vale puxar o arquivo inteiro, que so cresce com o volume de anotações.
  * O mesmo par de schemas vive em `src/domain/syncProtocol.ts` — qualquer
  * mudança aqui tem que ser espelhada lá, e vice-versa.
  */
@@ -38,6 +41,20 @@ const MAX_PAYLOAD_BYTES = 2 * 1024 * 1024
 // mesmo tamanho, nunca encolhe sozinha.
 const SHRINK_THRESHOLD = 0.5
 
+/**
+ * Extensão "Anotações" (docs/prompt-anotacoes.md seção 1.6):
+ * "Compatibilidade com o script antigo" - o app novo pode estar falando
+ * com uma cópia deste script publicada ANTES desta extensão existir, que
+ * nem sabe que este campo deveria existir. `capabilities` vai em toda
+ * resposta de sucesso (ping/status/pull/push) para o front **detectar**
+ * isso: um script antigo simplesmente não devolve este campo (`undefined`
+ * no front), nunca `{notes: false}` - a ausência É a informação. Enquanto
+ * o script não for reimplantado com esta versão, o app continua
+ * sincronizando tarefas normalmente e mantém anotações só locais, com um
+ * aviso - nunca falha nem perde dado por essa diferença de versão.
+ */
+const CAPABILITIES = { notes: true, status: true }
+
 // ───────────────────────── Ponto de entrada ─────────────────────────
 
 function doPost(e) {
@@ -49,6 +66,7 @@ function doPost(e) {
     if (!parsed) return respond_({ ok: false, error: 'invalid' })
 
     if (parsed.action === 'ping') return respond_(handlePing_(parsed))
+    if (parsed.action === 'status') return respond_(handleStatus_(parsed))
     if (parsed.action === 'pull') return respond_(handlePull_(parsed))
     return respond_(handlePush_(parsed))
   } catch (error) {
@@ -79,7 +97,14 @@ function parseRequestBody_(e) {
 /** Confere a forma básica do envelope e devolve só os campos usados. */
 function parseAction_(body) {
   if (!body || typeof body.token !== 'string' || body.token.length === 0) return null
-  if (body.action !== 'ping' && body.action !== 'pull' && body.action !== 'push') return null
+  if (
+    body.action !== 'ping' &&
+    body.action !== 'status' &&
+    body.action !== 'pull' &&
+    body.action !== 'push'
+  ) {
+    return null
+  }
 
   return {
     token: body.token,
@@ -101,6 +126,7 @@ function handlePing_(request) {
     revision: state.revision,
     checksum: computeChecksum_(state.data),
     data: state.data,
+    capabilities: CAPABILITIES,
   }
 }
 
@@ -113,6 +139,25 @@ function handlePull_(request) {
     revision: state.revision,
     checksum: computeChecksum_(state.data),
     data: state.data,
+    capabilities: CAPABILITIES,
+  }
+}
+
+/**
+ * Extensão "Anotações" (docs/prompt-anotacoes.md seção 6.3): so
+ * revision+checksum, sem `data` - o app usa isto pra decidir se vale a
+ * pena puxar o arquivo inteiro (que so cresce com o volume de anotações)
+ * quando nada mudou desde a ultima sincronização confirmada.
+ */
+function handleStatus_(request) {
+  if (!checkToken_(request.token)) return { ok: false, error: 'unauthorized' }
+
+  const state = readState_()
+  return {
+    ok: true,
+    revision: state.revision,
+    checksum: computeChecksum_(state.data),
+    capabilities: CAPABILITIES,
   }
 }
 
@@ -122,6 +167,11 @@ function handlePush_(request) {
   if (typeof request.baseRevision !== 'number' || !isValidData_(request.data)) {
     return { ok: false, error: 'invalid' }
   }
+  // Compatibilidade com o front antigo/modo legado (docs/prompt-anotacoes.md
+  // secao 1.6): um push sem a chave `notes` (`legacyPush` no front, ou um
+  // app anterior a esta extensão) e valido - normaliza para `[]` AQUI,
+  // antes de qualquer uso de `request.data.notes` mais abaixo.
+  normalizeData_(request.data)
 
   const lock = LockService.getScriptLock()
   let gotLock = false
@@ -144,8 +194,13 @@ function handlePush_(request) {
       Logger.log(
         'Push recusado por encolher demais sem allowShrink. Atual: ' +
           current.data.tasks.length +
-          ' tarefas, novo: ' +
-          request.data.tasks.length,
+          ' tarefas/' +
+          current.data.notes.length +
+          ' anotações, novo: ' +
+          request.data.tasks.length +
+          ' tarefas/' +
+          request.data.notes.length +
+          ' anotações.',
       )
       return { ok: false, error: 'invalid' }
     }
@@ -165,6 +220,7 @@ function handlePush_(request) {
       revision: newRevision,
       checksum: computeChecksum_(request.data),
       data: request.data,
+      capabilities: CAPABILITIES,
     }
   } finally {
     if (gotLock) lock.releaseLock()
@@ -249,7 +305,7 @@ function getFileByName_(folder, name) {
 }
 
 function emptyData_() {
-  return { schemaVersion: SCHEMA_VERSION, tasks: [], task_events: [], people: [] }
+  return { schemaVersion: SCHEMA_VERSION, tasks: [], task_events: [], people: [], notes: [] }
 }
 
 /**
@@ -272,7 +328,7 @@ function readStateFromFolder_(folder) {
   return {
     revision: typeof parsed.revision === 'number' ? parsed.revision : 0,
     updatedAt: parsed.updatedAt || null,
-    data: isValidData_(parsed.data) ? parsed.data : emptyData_(),
+    data: isValidData_(parsed.data) ? normalizeData_(parsed.data) : emptyData_(),
   }
 }
 
@@ -389,12 +445,46 @@ function isValidPerson_(person) {
   )
 }
 
+/**
+ * Extensão "Anotações" (docs/prompt-anotacoes.md seção 6.1/6.2) - mesmo
+ * espírito de `isValidTask_`: confere so os campos que corrompem a
+ * mesclagem ou a exibição, não todo refinamento do Zod do front.
+ */
+function isValidNote_(note) {
+  return (
+    note &&
+    typeof note === 'object' &&
+    isNonEmptyString_(note.id) &&
+    isNullOr_(note.title, isNonEmptyString_) &&
+    typeof note.body === 'string' &&
+    Array.isArray(note.tags) &&
+    isNonEmptyString_(note.created_at) &&
+    isNonEmptyString_(note.updated_at) &&
+    typeof note.deleted === 'boolean' &&
+    isNullOr_(note.deleted_at, isNonEmptyString_) &&
+    isNonEmptyString_(note.device)
+  )
+}
+
+/**
+ * `data.notes` pode faltar por completo - não só vir `[]` - num arquivo
+ * `matriz.json` gravado por uma versão deste script ANTERIOR a esta
+ * extensão (docs/prompt-anotacoes.md seção 1.6). Tolerar isso aqui é
+ * essencial: sem essa tolerância, `isValidData_` rejeitaria o arquivo
+ * EXISTENTE inteiro na primeira leitura depois de reimplantar, e
+ * `readStateFromFolder_` cairia para `emptyData_()` - apagando tarefas de
+ * verdade da tela (não do Drive, mas o suficiente para parecer que tudo
+ * desapareceu). `normalizeData_` (chamado só depois de validar) é quem
+ * de fato preenche `notes: []` para o resto do script nunca precisar
+ * checar essa ausência de novo.
+ */
 function isValidData_(data) {
   if (!data || typeof data !== 'object') return false
   if (typeof data.schemaVersion !== 'number') return false
   if (!Array.isArray(data.tasks) || !Array.isArray(data.task_events) || !Array.isArray(data.people)) {
     return false
   }
+  if (data.notes !== undefined && !Array.isArray(data.notes)) return false
   for (let i = 0; i < data.tasks.length; i++) {
     if (!isValidTask_(data.tasks[i])) return false
   }
@@ -404,12 +494,34 @@ function isValidData_(data) {
   for (let k = 0; k < data.people.length; k++) {
     if (!isValidPerson_(data.people[k])) return false
   }
+  if (Array.isArray(data.notes)) {
+    for (let m = 0; m < data.notes.length; m++) {
+      if (!isValidNote_(data.notes[m])) return false
+    }
+  }
   return true
 }
 
+/** So chamar depois de `isValidData_` aprovar - garante `notes` sempre array. */
+function normalizeData_(data) {
+  if (!Array.isArray(data.notes)) data.notes = []
+  return data
+}
+
+/**
+ * Protege contra encolhimento brusco tanto de tarefas quanto de anotações
+ * (docs/prompt-anotacoes.md seção 6.3: "O Apps Script continua protegendo
+ * contra encolhimento brusco também para anotações") - qualquer uma das
+ * duas encolhendo demais sem `allowShrink` recusa o push.
+ */
 function isDrasticShrink_(currentData, newData) {
-  const before = currentData.tasks.length
-  const after = newData.tasks.length
+  return (
+    isDrasticShrinkOf_(currentData.tasks.length, newData.tasks.length) ||
+    isDrasticShrinkOf_(currentData.notes.length, newData.notes.length)
+  )
+}
+
+function isDrasticShrinkOf_(before, after) {
   if (before === 0) return false // nada a encolher
   return after < before * SHRINK_THRESHOLD
 }
@@ -454,6 +566,7 @@ function canonicalJson_(data) {
     tasks: sortById_(data.tasks),
     task_events: sortById_(data.task_events),
     people: sortById_(data.people),
+    notes: sortById_(data.notes),
   }
   return JSON.stringify(sortKeysDeep_(payload))
 }
@@ -519,12 +632,14 @@ function testChecksum() {
       },
     ],
     people: [],
+    notes: [],
   }
 
-  // Mudou junto com a extensão "Anotações" (tasks.source_note_id novo no
-  // schema) - recalculado e verificado contra computeChecksum real em
-  // src/domain/checksum.test.ts, mesmo fixture.
-  const expected = '8aca9634cc91eaf1efa2c9719e16d962f75eae3df0827e836a1c3209ba75c037'
+  // Mudou junto com a extensão "Anotações" (`notes` novo no payload de
+  // sync, docs/prompt-anotacoes.md seção 6.1) - recalculado e verificado
+  // contra computeChecksum real em src/domain/checksum.test.ts, mesmo
+  // fixture.
+  const expected = '56204de8c415f32ab09fd8ccde7a203fe20cbac02d141bbc3d49eb63a46dd7f4'
   const actual = computeChecksum_(fixture)
 
   Logger.log('Hash calculado: ' + actual)

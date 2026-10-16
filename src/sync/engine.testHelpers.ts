@@ -12,7 +12,7 @@ import { syncRequestSchema, type SyncData, type SyncRequest, type SyncResponse }
 export function noop(): void {}
 
 export function emptySyncData(): SyncData {
-  return { schemaVersion: CURRENT_SCHEMA_VERSION, tasks: [], task_events: [], people: [] }
+  return { schemaVersion: CURRENT_SCHEMA_VERSION, tasks: [], task_events: [], people: [], notes: [] }
 }
 
 /**
@@ -21,29 +21,57 @@ export function emptySyncData(): SyncData {
  * diferente da real nunca bateria com o que o motor espera, mesmo para o
  * mesmo conteudo - e foi exatamente isso que aconteceu na primeira versao
  * deste teste (o helper daqui nao ordenava as chaves do nivel raiz, so as
- * de dentro de cada tarefa).
+ * de dentro de cada tarefa). `includeNotes: false` simula o calculo de um
+ * script ANTERIOR a extensao "Anotações" (docs/prompt-anotacoes.md secao
+ * 1.6) - ver `createFakeServer({ legacy: true })`.
  */
-export function canonicalChecksum(d: SyncData): Promise<string> {
-  return computeChecksum({ tasks: d.tasks, taskEvents: d.task_events, people: d.people })
+export function canonicalChecksum(d: SyncData, includeNotes = true): Promise<string> {
+  return computeChecksum(
+    { tasks: d.tasks, taskEvents: d.task_events, people: d.people, notes: d.notes },
+    includeNotes,
+  )
+}
+
+export interface FakeServerOptions {
+  /**
+   * Simula um `Code.gs` publicado ANTES da extensão "Anotações" - nunca
+   * devolve `capabilities`, recusa a ação `status`, e calcula o checksum
+   * sem a chave `notes` (ver `src/sync/engine.ts`, detecção por
+   * `pulled.capabilities?.notes`).
+   */
+  readonly legacy?: boolean
 }
 
 /**
- * Servidor Apps Script simulado, em memoria: implementa pull/push/ping com
- * as mesmas regras de `apps-script/Code.gs` (conferir baseRevision, gerar
- * checksum da mesma forma), interceptando `global.fetch`. Nao reusa
- * `apps-script/test/harness.mjs` porque aquele carrega o `.gs` via `vm`
- * simulando os globais do Apps Script - aqui o alvo e o `callSync` do
- * front, entao o suficiente e simular as RESPOSTAS HTTP.
+ * Servidor Apps Script simulado, em memoria: implementa ping/status/pull/
+ * push com as mesmas regras de `apps-script/Code.gs` (conferir
+ * baseRevision, gerar checksum da mesma forma), interceptando
+ * `global.fetch`. Nao reusa `apps-script/test/harness.mjs` porque aquele
+ * carrega o `.gs` via `vm` simulando os globais do Apps Script - aqui o
+ * alvo e o `callSync` do front, entao o suficiente e simular as RESPOSTAS
+ * HTTP.
  */
-export function createFakeServer(token: string) {
+export function createFakeServer(token: string, options: FakeServerOptions = {}) {
+  const legacy = options.legacy === true
   let revision = 0
   let data: SyncData = emptySyncData()
 
   async function handle(body: SyncRequest): Promise<SyncResponse> {
     if (body.token !== token) return { ok: false, error: 'unauthorized' }
 
+    if (body.action === 'status') {
+      if (legacy) return { ok: false, error: 'invalid' }
+      return { ok: true, revision, checksum: await canonicalChecksum(data), capabilities: { notes: true, status: true } }
+    }
+
     if (body.action === 'ping' || body.action === 'pull') {
-      return { ok: true, revision, checksum: await canonicalChecksum(data), data }
+      return {
+        ok: true,
+        revision,
+        checksum: await canonicalChecksum(data, !legacy),
+        data,
+        ...(legacy ? {} : { capabilities: { notes: true, status: true } }),
+      }
     }
 
     if (body.data === undefined || body.baseRevision !== revision) {
@@ -51,7 +79,13 @@ export function createFakeServer(token: string) {
     }
     data = body.data
     revision += 1
-    return { ok: true, revision, checksum: await canonicalChecksum(data), data }
+    return {
+      ok: true,
+      revision,
+      checksum: await canonicalChecksum(data, !legacy),
+      data,
+      ...(legacy ? {} : { capabilities: { notes: true, status: true } }),
+    }
   }
 
   return {

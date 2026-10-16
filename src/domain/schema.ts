@@ -126,11 +126,20 @@ export type Note = z.infer<typeof noteSchema>
  * `last_confirmed_revision` e `last_confirmed_checksum` entram em uso na
  * fase 2; aqui o schema ja reserva o formato para a migracao do Dexie nao
  * precisar mudar de novo.
+ *
+ * `last_confirmed_at` (extensao "Anotações", docs/prompt-anotacoes.md secao
+ * 6.2): instante da ultima sincronizacao confirmada por ESTE aparelho -
+ * usado so por `detectNoteConflicts` (`src/domain/noteMerge.ts`) para saber
+ * se a versao que o servidor devolveu mudou DEPOIS da ultima vez que este
+ * aparelho viu o estado remoto, o que distingue "edicao concorrente
+ * genuina" (gera copia) de "so eu editei, o servidor nao mudou" (a edicao
+ * local simplesmente vence, sem copia nenhuma).
  */
 export const metaSchema = z.object({
   device_name: deviceName,
   last_confirmed_revision: z.number().int().nonnegative().nullable(),
   last_confirmed_checksum: z.string().nullable(),
+  last_confirmed_at: timestamp.nullable(),
   pending_ids: z.array(uuid),
   schema_version: z.number().int().positive(),
 })

@@ -13,6 +13,7 @@ function defaultMeta(): Meta {
     device_name: getDeviceName(),
     last_confirmed_revision: null,
     last_confirmed_checksum: null,
+    last_confirmed_at: null,
     pending_ids: [],
     schema_version: CURRENT_SCHEMA_VERSION,
   }
@@ -69,6 +70,7 @@ export async function clearPending(
   confirmedRevision: number,
   confirmedChecksum: string,
   confirmedIds: readonly string[],
+  confirmedAt: string,
 ): Promise<void> {
   const confirmedSet = new Set(confirmedIds)
   await db.transaction('rw', db.meta, async () => {
@@ -79,6 +81,7 @@ export async function clearPending(
         pending_ids: current.pending_ids.filter((id) => !confirmedSet.has(id)),
         last_confirmed_revision: confirmedRevision,
         last_confirmed_checksum: confirmedChecksum,
+        last_confirmed_at: confirmedAt,
       },
       LOCAL_META_KEY,
     )

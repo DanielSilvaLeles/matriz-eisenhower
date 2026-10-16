@@ -22,18 +22,27 @@
  *   ninguem vai desfazer uma exclusao de um mes atras, e manter o registro
  *   para sempre so infla o payload do sync a toa.
  */
-import type { Person, Task, TaskEvent } from './schema.ts'
+import type { Note, Person, Task, TaskEvent } from './schema.ts'
 
 export interface SyncableState {
   readonly tasks: readonly Task[]
   readonly taskEvents: readonly TaskEvent[]
   readonly people: readonly Person[]
+  readonly notes: readonly Note[]
 }
 
 const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 
-/** Mais recente vence; empate desempata pelo nome do aparelho. Simetrica de proposito. */
-function pickByUpdatedAt<T extends { updated_at: string; device: string }>(a: T, b: T): T {
+/**
+ * Mais recente vence; empate desempata pelo nome do aparelho. Simetrica de
+ * proposito. Usada tambem para `notes` na uniao generica abaixo - a mesma
+ * regra de "edicao vs exclusao" das tarefas vale aqui (uma exclusao com
+ * `updated_at` mais novo vence; uma edicao mais nova ressuscita). A deteccao
+ * de EDICAO CONCORRENTE genuina (que gera copia de conflito, em vez de so
+ * escolher um vencedor) e mais especifica e vive em `noteMerge.ts`, chamada
+ * pelo motor de sync so no passo local-vs-servidor - ver esse arquivo.
+ */
+export function pickByUpdatedAt<T extends { updated_at: string; device: string }>(a: T, b: T): T {
   if (a.updated_at !== b.updated_at) return a.updated_at > b.updated_at ? a : b
   return a.device.localeCompare(b.device) >= 0 ? a : b
 }
@@ -73,9 +82,9 @@ function unionWithTieBreak<T extends { id: string }>(
   return [...byId.values()]
 }
 
-function isStaleTombstone(task: Task, nowIso: string): boolean {
-  if (!task.deleted) return false
-  const ageMs = new Date(nowIso).getTime() - new Date(task.updated_at).getTime()
+function isStaleTombstone(entity: { deleted: boolean; updated_at: string }, nowIso: string): boolean {
+  if (!entity.deleted) return false
+  const ageMs = new Date(nowIso).getTime() - new Date(entity.updated_at).getTime()
   return ageMs > TOMBSTONE_MAX_AGE_MS
 }
 
@@ -84,15 +93,29 @@ function isStaleTombstone(task: Task, nowIso: string): boolean {
  * muda nada - a uniao de um conjunto com ele mesmo e ele mesmo) e
  * comutativa (`mergeState(a, b, now)` e `mergeState(b, a, now)` tem o mesmo
  * conteudo, como conjunto).
+ *
+ * `notes` entra na mesma uniao+desempate generica que `tasks` ja usa -
+ * cobre "mesma anotacao sem edicao concorrente" e "edicao vs exclusao"
+ * (docs/prompt-anotacoes.md secao 6.2) de graca, por serem exatamente a
+ * mesma regra. O caso que PRECISA de tratamento especial (edicao
+ * concorrente genuina -> copia de conflito, texto nunca descartado) fica
+ * fora desta funcao, em `noteMerge.ts` - chamado so no passo principal do
+ * ciclo de sync (local vs servidor), nunca na remesclagem de protecao
+ * contra escrita em voo (`applyAndConfirm`), onde so o MESMO aparelho
+ * poderia "colidir com si mesmo" e gerar uma copia de conflito espuria.
  */
 export function mergeState(a: SyncableState, b: SyncableState, nowIso: string): SyncableState {
   const tasks = unionWithTieBreak(a.tasks, b.tasks, pickByUpdatedAt).filter(
     (task) => !isStaleTombstone(task, nowIso),
+  )
+  const notes = unionWithTieBreak(a.notes, b.notes, pickByUpdatedAt).filter(
+    (note) => !isStaleTombstone(note, nowIso),
   )
 
   return {
     tasks,
     taskEvents: unionWithTieBreak(a.taskEvents, b.taskEvents, pickByAt),
     people: unionWithTieBreak(a.people, b.people, pickPersonWinner),
+    notes,
   }
 }

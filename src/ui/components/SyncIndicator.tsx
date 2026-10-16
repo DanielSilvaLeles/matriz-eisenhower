@@ -1,7 +1,9 @@
-import { AlertCircle, Check, CloudOff, RefreshCw } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Check, CloudOff, RefreshCw } from 'lucide-react'
 import { usePendingCount } from '@/db/hooks.ts'
 import { runSync } from '@/sync/engine.ts'
 import { SYNC_ERROR_MESSAGES } from '@/sync/errorMessages.ts'
+import { usePayloadWarning } from '@/sync/usePayloadWarning.ts'
+import { useScriptCapability } from '@/sync/useScriptCapability.ts'
 import { useSyncStatus } from '@/sync/useSyncStatus.ts'
 import { cn } from '@/lib/utils.ts'
 
@@ -32,6 +34,8 @@ function handleSyncNow(): void {
 export function SyncIndicator() {
   const status = useSyncStatus()
   const pendingCount = usePendingCount()
+  const payloadNearLimit = usePayloadWarning()
+  const { notesSupported } = useScriptCapability()
 
   const pendingLabel =
     pendingCount > 0
@@ -80,6 +84,22 @@ export function SyncIndicator() {
           className="rounded-full bg-warn-soft px-1.5 text-warn tabular-nums"
         >
           {pendingCount}
+        </span>
+      ) : null}
+      {notesSupported ? null : (
+        <span
+          title="Script desatualizado: reimplante a nova versão para sincronizar anotações."
+          className="inline-flex shrink-0 items-center text-warn"
+        >
+          <AlertTriangle className="size-3.5" aria-hidden="true" />
+        </span>
+      )}
+      {payloadNearLimit ? (
+        <span
+          title="Perto do limite de armazenamento do sync — considere exportar e arquivar anotações antigas."
+          className="inline-flex shrink-0 items-center text-warn"
+        >
+          <AlertTriangle className="size-3.5" aria-hidden="true" />
         </span>
       ) : null}
       <button

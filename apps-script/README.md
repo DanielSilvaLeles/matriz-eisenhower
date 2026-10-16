@@ -64,11 +64,38 @@ cada aparelho, e clique em "Testar conexão" para confirmar.
 Sempre que atualizar `Code.gs` (uma correção, uma funcionalidade nova):
 
 1. Cole o código novo no editor, substituindo o antigo. Salve.
-2. Clique em **Implantar → Gerenciar implantações**.
-3. Ao lado da implantação ativa (a que foi criada no passo 7-10 acima),
+2. Rode a função **`testChecksum`** de novo (mesmo menu suspenso do passo 6
+   da primeira publicação) e confira "✓ Bate" no log — qualquer mudança no
+   formato dos dados (como a extensão "Anotações" abaixo) muda o cálculo
+   de checksum nos dois lados juntos; se só um lado for colado, a
+   sincronização nunca mais confirma nenhuma gravação.
+3. Clique em **Implantar → Gerenciar implantações**.
+4. Ao lado da implantação ativa (a que foi criada no passo 7-10 acima),
    clique no ícone de lápis (editar).
-4. Em **Versão**, escolha **Nova versão**.
-5. Clique em **Implantar**.
+5. Em **Versão**, escolha **Nova versão**.
+6. Clique em **Implantar**.
+
+### Extensão "Anotações" (fase 2 de `docs/prompt-anotacoes.md`)
+
+Esta versão do `Code.gs` ganhou: a ação `status` (so revision+checksum,
+sem `data` — o app usa para não puxar o arquivo inteiro quando nada
+mudou), validação do campo `notes` no payload, a mesma proteção contra
+encolhimento brusco (`allowShrink`) agora cobrindo anotações também, e um
+campo novo `capabilities: { notes: true, status: true }` em toda resposta
+de sucesso.
+
+**Não precisa reimplantar às pressas — o app novo já funciona com o script
+antigo, de propósito.** O front detecta a AUSÊNCIA de `capabilities` numa
+resposta (um script publicado antes desta extensão nunca manda esse campo)
+e entra em modo de compatibilidade sozinho: tarefas continuam
+sincronizando normalmente (checksum calculado do jeito antigo, sem a chave
+`notes`), e as anotações ficam só neste aparelho - nunca enviadas, sempre
+marcadas pendentes - com um aviso discreto ("Script desatualizado:
+reimplante a nova versão para sincronizar anotações") no indicador de
+sincronização, até você reimplantar. Nenhum dado é perdido nem a
+sincronização de tarefas para de funcionar nesse meio-tempo. Reimplante
+quando for conveniente para as anotações passarem a sincronizar entre os
+aparelhos também.
 
 **A URL continua a mesma** — é exatamente por isso que o passo certo é
 **editar a implantação existente**, não criar uma implantação nova. Se você

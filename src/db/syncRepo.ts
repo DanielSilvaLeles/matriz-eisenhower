@@ -9,23 +9,49 @@ import type { MatrizDB } from './schema.ts'
 
 export interface LocalSyncSnapshot extends SyncableState {
   /**
-   * `meta.pending_ids` no MESMO instante das tarefas acima (uma unica
-   * transacao de leitura) - para `clearPending` saber exatamente quais ids
-   * este ciclo esta prestes a confirmar, sem incluir por engano uma
-   * pendencia criada por uma escrita que aconteceu um instante depois.
+   * `meta.pending_ids` no MESMO instante das tarefas/anotacoes acima (uma
+   * unica transacao de leitura) - para `clearPending` saber exatamente
+   * quais ids este ciclo esta prestes a confirmar, sem incluir por engano
+   * uma pendencia criada por uma escrita que aconteceu um instante depois.
+   * Lista unica para tarefas E anotacoes (ids sao UUID, sem risco de
+   * colisao) - ver CLAUDE.md.
    */
   readonly pendingIds: readonly string[]
+  /**
+   * `meta.last_confirmed_at` no mesmo instante - so `detectNoteConflicts`
+   * (`src/domain/noteMerge.ts`) usa isto, para saber se o servidor mudou
+   * uma anotacao DEPOIS da ultima vez que este aparelho confirmou sync.
+   */
+  readonly lastConfirmedAt: string | null
+  /**
+   * `meta.last_confirmed_revision`/`last_confirmed_checksum` no mesmo
+   * instante - so a verificacao barata `action: 'status'`
+   * (`src/sync/engine.ts`) usa isto, para decidir se vale a pena puxar o
+   * arquivo inteiro.
+   */
+  readonly lastConfirmedRevision: number | null
+  readonly lastConfirmedChecksum: string | null
 }
 
 export function readLocalState(db: MatrizDB): Promise<LocalSyncSnapshot> {
-  return db.transaction('r', db.tasks, db.task_events, db.people, db.meta, async () => {
-    const [tasks, taskEvents, people, meta] = await Promise.all([
+  return db.transaction('r', db.tasks, db.task_events, db.people, db.notes, db.meta, async () => {
+    const [tasks, taskEvents, people, notes, meta] = await Promise.all([
       db.tasks.toArray(),
       db.task_events.toArray(),
       db.people.toArray(),
+      db.notes.toArray(),
       getMeta(db),
     ])
-    return { tasks, taskEvents, people, pendingIds: meta.pending_ids }
+    return {
+      tasks,
+      taskEvents,
+      people,
+      notes,
+      pendingIds: meta.pending_ids,
+      lastConfirmedAt: meta.last_confirmed_at,
+      lastConfirmedRevision: meta.last_confirmed_revision,
+      lastConfirmedChecksum: meta.last_confirmed_checksum,
+    }
   })
 }
 
@@ -47,11 +73,12 @@ export function readLocalState(db: MatrizDB): Promise<LocalSyncSnapshot> {
  * corrigido aqui - ver CLAUDE.md).
  */
 export function applyMergedState(db: MatrizDB, merged: SyncableState): Promise<void> {
-  return db.transaction('rw', db.tasks, db.task_events, db.people, async () => {
+  return db.transaction('rw', db.tasks, db.task_events, db.people, db.notes, async () => {
     await Promise.all([
       db.tasks.bulkPut(merged.tasks),
       db.task_events.bulkPut(merged.taskEvents),
       db.people.bulkPut(merged.people),
+      db.notes.bulkPut(merged.notes),
     ])
   })
 }

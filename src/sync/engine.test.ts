@@ -109,6 +109,7 @@ describe('runSync', () => {
           ],
           task_events: [],
           people: [],
+          notes: [],
         },
       }),
     })
@@ -139,7 +140,7 @@ describe('runSync', () => {
         token: 'segredo',
         action: 'push',
         baseRevision: 0,
-        data: { schemaVersion: CURRENT_SCHEMA_VERSION + 1, tasks: [], task_events: [], people: [] },
+        data: { schemaVersion: CURRENT_SCHEMA_VERSION + 1, tasks: [], task_events: [], people: [], notes: [] },
       }),
     })
 

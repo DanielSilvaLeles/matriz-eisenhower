@@ -64,3 +64,124 @@ provando que tarefas, pessoas e histórico existentes sobrevivem intactos."
 Registrado aqui porque é o tipo de coisa que, se divergir silenciosamente
 do código real, perde dado de verdade — ver `src/db/migration.test.ts`
 (fase 1) para o teste correspondente.
+
+## 6. `schemaVersion` do protocolo de sync não subiu de novo na fase 2
+
+**Prompt pede (seção 6.1):** "O `schemaVersion` do `matriz.json` sobe, com
+migration do IndexedDB e do arquivo" - texto escrito pensando na fase 1
+(tabela `notes` nova). A fase 2 acrescenta `notes` ao PAYLOAD de sync (que
+antes só viajava local), e isso é, por si só, uma mudança de formato do
+protocolo.
+
+**Decisão:** manter `CURRENT_SCHEMA_VERSION = 2` (já usado pela fase 1 para
+a tabela local), sem bater para 3. Raciocínio: nenhuma versão 2 chegou a
+ser publicada/sincronizada de verdade antes deste commit (fases 1a-1c
+nunca ligaram o sync com `notes` no ar) - não existe nenhum arquivo
+`matriz.json` real gravado com `schemaVersion: 2` e SEM `notes` que
+precisasse de uma migração formal para o formato novo. Versão 2 já
+significa, desde a fase 1, "o formato que inclui anotações" - a fase 2 só
+termina de cumprir essa promessa no protocolo de rede. Bater para 3 seria
+uma migração sem propósito real (não há dado antigo de verdade para
+migrar), e a guarda de "recusa sincronizar com schemaVersion maior"
+(`src/sync/engine.ts`, já testada desde a fase 1) continua funcionando
+exatamente igual se algum dia precisar.
+
+## 7. `last_confirmed_at` novo em `Meta`, só para decidir conflito de anotação
+
+A detecção de edição concorrente (seção 6.2) precisa saber "o servidor
+mudou essa anotação DEPOIS da última vez que eu sincronizei?". Guardar um
+**mapa por anotação** da última versão confirmada seria mais preciso, mas
+a complexidade (nova tabela, ou campo por nota) não se paga: um único
+timestamp global (`meta.last_confirmed_at`, ao lado de
+`last_confirmed_revision`/`last_confirmed_checksum` que já existiam) já
+garante a leitura certa na prática - um relógio de aparelho muito errado
+já é uma limitação aceita do projeto (CLAUDE.md, "Relógio dos aparelhos
+pode divergir"), e o pior caso de um timestamp global longe do ideal é, no
+máximo, detectar (ou deixar de detectar) um conflito que byte a byte seria
+genuíno de qualquer forma - nunca perde texto, porque a cópia de conflito
+só existe para o cenário em que ela SERIA necessária; no cenário onde ela
+não é gerada por engano de falta de granularidade, a regra padrão
+"`updated_at` mais recente vence" (já usada para tarefas) ainda se aplica
+sem perder nada, só sem o aviso extra de "revise, pode ter duas versões".
+
+## 8. Detecção de script antigo: ausência de `capabilities`, nunca um valor explícito `false`
+
+**Prompt pede (seção 1.6, obrigatório):** "se o script não suportar a ação
+`status` ou a coleção de anotações (detecte pelo `ping`, que deve passar a
+informar a versão e as capacidades do script), o app continua
+sincronizando as tarefas normalmente, mantém as anotações apenas locais e
+mostra o aviso."
+
+**Decisão:** `capabilities: { notes: true, status: true }` entra em TODA
+resposta de sucesso (`ping`/`status`/`pull`/`push`) do `Code.gs` desta
+extensão. Um script publicado ANTES desta extensão simplesmente não tem
+esse campo no objeto que devolve - o front detecta pela ausência da
+chave (`pulled.capabilities?.notes === true`), nunca por um valor
+`{notes: false}` que um script antigo nunca teria motivo de mandar.
+Reusa a resposta do `pull` do próprio ciclo normal para essa detecção (não
+faz uma chamada de `ping` extra a cada ciclo) - mais simples e sem custo
+de rede adicional, já que `pull` e `ping` devolvem exatamente o mesmo
+envelope.
+
+Três ajustes para a compatibilidade ser real, não só a detecção:
+
+- **Checksum** (`src/domain/checksum.ts`, `computeChecksum(contents,
+  includeNotes)`): com `includeNotes: false`, omite a chave `notes` por
+  completo do JSON canônico (não manda `[]` - um valor presente, mesmo
+  vazio, já mudaria o hash). O teste `checksum.test.ts` confirma que esse
+  modo reproduz **bit a bit** o hash que o projeto já usava antes desta
+  extensão (`LEGACY_FIXTURE_HASH` = o antigo `FIXTURE_HASH`), prova de que
+  é exatamente o mesmo cálculo de sempre, não uma aproximação.
+- **Push** (`src/sync/client.ts`, `legacyPush`): omite a chave `notes` do
+  corpo HTTP de verdade - não só no cálculo do checksum. Sem isso um
+  script antigo gravaria essa chave sem validar (ele não sabe que ela
+  existe), e o checksum que ELE calcula (sem saber da chave) nunca bateria
+  com o que o front esperava.
+- **Pendência** (`src/sync/engineApply.ts`, parâmetro `notesSupported` em
+  `applyAndConfirm`): mesmo que uma anotação pendente não tenha mudado
+  entre o início do ciclo e a releitura final, ela NUNCA é removida de
+  `pending_ids` enquanto o script for antigo - ela nunca foi enviada de
+  verdade, e o contador de pendências mentiria "sincronizado" se a
+  marcasse confirmada.
+
+Testes de regressão em `src/sync/engine.notes.test.ts` (descrição
+"compatibilidade com script antigo"): tarefas sincronizam normalmente,
+anotação pendente nunca sai do aparelho nem aparece na chave `notes` do
+corpo do push, e - depois que um servidor simulado "reimplantado" (com
+`capabilities`) assume - a mesma anotação, ainda pendente, finalmente
+sincroniza na próxima chamada.
+
+**Bug real encontrado e corrigido ao escrever esta compatibilidade:**
+`isValidData_` (`apps-script/Code.gs`) exigia `Array.isArray(data.notes)`
+sem exceção - o que parecia certo (validação estrita do formato), mas tem
+uma consequência séria no sentido INVERSO do que esta seção toda discute:
+um `matriz.json` já existente no Drive, gravado por uma versão do script
+ANTERIOR a esta extensão, não tem a chave `notes` de jeito nenhum.
+`readStateFromFolder_` fazia `isValidData_(parsed.data) ? parsed.data :
+emptyData_()` - ou seja, a primeira leitura desse arquivo real depois de
+reimplantar reprovava a validação e caía para `emptyData_()`, fazendo
+**todas as tarefas de verdade "desaparecerem" da tela** (não do Drive -
+o arquivo continuava intacto - mas o app não veria nada até um próximo
+push reescrever o arquivo do zero). Um bug de leitura, não de escrita,
+que só se manifestaria exatamente no momento em que o usuário reimplantar
+o script - o pior timing possível para passar batido.
+
+Corrigido com `normalizeData_()`: `isValidData_` passa a tolerar
+`data.notes === undefined` (só reprova se a chave existir e NÃO for um
+array), e `normalizeData_()` preenche `notes: []` logo depois de validar -
+tanto na leitura (`readStateFromFolder_`) quanto na escrita
+(`handlePush_`, para um push legado/de um app ainda não atualizado não
+quebrar o resto do script que assume `data.notes` sempre array). A
+proteção contra encolhimento brusco (`isDrasticShrink_`, já estendida
+nesta mesma fase para cobrir anotações) acaba servindo de rede de
+segurança adicional nesse segundo caso: um push sem `notes` normalizado
+para `[]` só é aceito sem `allowShrink` se o servidor também já tiver
+zero anotações - encolher de N para 0 é sempre recusado.
+
+Encontrado revisando o próprio código depois de implementar a
+compatibilidade "front novo + script antigo" pedida pelo prompt - ao
+pensar no caminho inverso (dados antigos relidos por um script novo),
+não por nenhum teste que já existisse. Teste de regressão acrescentado em
+`apps-script/test/harness.mjs` ("lê um matriz.json antigo..."),
+confirmado que falha sem a correção (reproduz exatamente o
+desaparecimento: 0 tarefas em vez de 1) e passa com ela.

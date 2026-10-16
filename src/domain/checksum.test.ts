@@ -44,16 +44,27 @@ const FIXTURE: ChecksumContents = {
     },
   ],
   people: [],
+  notes: [],
 }
 
 /**
- * Mudou junto com a extensão "Anotações" (`tasks.source_note_id` novo no
- * schema) - recalculado e verificado de duas formas independentes:
- * `computeChecksum` real (este teste) e `shasum -a 256` na linha de
+ * Mudou junto com a extensão "Anotações" (`notes` novo no payload de sync,
+ * docs/prompt-anotacoes.md seção 6.1) - recalculado e verificado de tres
+ * formas independentes: `computeChecksum` real (este teste), um script
+ * Node replicando a mesma canonicalizacao, e `shasum -a 256` na linha de
  * comando sobre o mesmo JSON canônico, antes de atualizar
  * `apps-script/Code.gs::testChecksum()` para o mesmo valor.
  */
-const FIXTURE_HASH = '8aca9634cc91eaf1efa2c9719e16d962f75eae3df0827e836a1c3209ba75c037'
+const FIXTURE_HASH = '56204de8c415f32ab09fd8ccde7a203fe20cbac02d141bbc3d49eb63a46dd7f4'
+
+/**
+ * `includeNotes: false` (compatibilidade com o script antigo, docs
+ * secao 1.6) tem que reproduzir EXATAMENTE o hash que este mesmo arquivo
+ * calculava antes da extensão "Anotações" existir - é literalmente o
+ * mesmo conteúdo (`FIXTURE` sem a chave `notes`), então é o mesmo
+ * cálculo de sempre.
+ */
+const LEGACY_FIXTURE_HASH = '8aca9634cc91eaf1efa2c9719e16d962f75eae3df0827e836a1c3209ba75c037'
 
 describe('canonicalJSON', () => {
   it('ordena as chaves de cada objeto alfabeticamente', () => {
@@ -72,6 +83,7 @@ describe('canonicalJSON', () => {
       ],
       taskEvents: [],
       people: [],
+      notes: [],
     }
     const json = canonicalJSON(embaralhado)
     expect(json.indexOf('"aaa"')).toBeLessThan(json.indexOf('"zzz"'))
@@ -82,7 +94,7 @@ describe('canonicalJSON', () => {
   })
 
   it('listas vazias nao quebram nada', () => {
-    expect(() => canonicalJSON({ tasks: [], taskEvents: [], people: [] })).not.toThrow()
+    expect(() => canonicalJSON({ tasks: [], taskEvents: [], people: [], notes: [] })).not.toThrow()
   })
 })
 
@@ -101,6 +113,30 @@ describe('computeChecksum', () => {
     expect(mudado).not.toBe(original)
   })
 
+  it('includeNotes:false (compatibilidade com script antigo) reproduz o hash de antes da extensão "Anotações"', async () => {
+    await expect(computeChecksum(FIXTURE, false)).resolves.toBe(LEGACY_FIXTURE_HASH)
+  })
+
+  it('includeNotes:false ignora o conteudo de notes por completo, mesmo se nao vazio', async () => {
+    const comNota: ChecksumContents = {
+      ...FIXTURE,
+      notes: [
+        {
+          id: '44444444-4444-4444-8444-444444444444',
+          title: null,
+          body: 'Isto nao deveria entrar no hash legado',
+          tags: [],
+          created_at: '2026-10-15T10:00:00.000Z',
+          updated_at: '2026-10-15T10:00:00.000Z',
+          deleted: false,
+          deleted_at: null,
+          device: 'pc empresa',
+        },
+      ],
+    }
+    await expect(computeChecksum(comNota, false)).resolves.toBe(LEGACY_FIXTURE_HASH)
+  })
+
   it('a ordem de insercao nao importa, so o conteudo', async () => {
     const a: ChecksumContents = {
       tasks: [
@@ -109,11 +145,13 @@ describe('computeChecksum', () => {
       ],
       taskEvents: [],
       people: [],
+      notes: [],
     }
     const b: ChecksumContents = {
       tasks: [...a.tasks].toReversed(),
       taskEvents: [],
       people: [],
+      notes: [],
     }
     expect(await computeChecksum(a)).toBe(await computeChecksum(b))
   })

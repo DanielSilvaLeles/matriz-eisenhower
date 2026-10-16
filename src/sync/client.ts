@@ -14,6 +14,7 @@ import {
   syncRequestSchema,
   syncResponseSchema,
   type SyncAction,
+  type SyncCapabilities,
   type SyncData,
 } from '@/domain/syncProtocol.ts'
 
@@ -34,13 +35,25 @@ export interface SyncCallParams {
   readonly baseRevision?: number
   readonly data?: SyncData
   readonly allowShrink?: boolean
+  /**
+   * So em `push`, compatibilidade com o script antigo
+   * (docs/prompt-anotacoes.md secao 1.6): omite a chave `notes` do corpo
+   * de verdade enviado por rede (nao so manda `[]`), para o checksum que
+   * um script anterior a esta extensao calcula (sem essa chave, ver
+   * `apps-script/Code.gs` de antes) bater com o que o motor de sync
+   * espera (`computeChecksum(..., false)` em `src/domain/checksum.ts`).
+   */
+  readonly legacyPush?: boolean
 }
 
 export interface SyncCallSuccess {
   readonly ok: true
   readonly revision: number
   readonly checksum: string
-  readonly data: SyncData
+  /** Ausente so na resposta de `action: 'status'` (docs/prompt-anotacoes.md secao 6.3). */
+  readonly data?: SyncData
+  /** Ausente quando o script e anterior a extensao "Anotações" - ver capabilitiesSchema. */
+  readonly capabilities?: SyncCapabilities
 }
 
 export interface SyncCallFailure {
@@ -72,12 +85,19 @@ export async function callSync(params: SyncCallParams): Promise<SyncCallResult> 
     allowShrink: params.allowShrink,
   })
 
+  // `legacyPush`: remove a chave `notes` do corpo de verdade (nao so `[]`)
+  // - ver o comentario de `SyncCallParams.legacyPush`.
+  const wireBody: unknown =
+    params.legacyPush === true && body.data !== undefined
+      ? { ...body, data: { ...body.data, notes: undefined } }
+      : body
+
   let raw: Response
   try {
     raw = await fetch(params.url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(wireBody),
     })
   } catch {
     // CORS, DNS, conexao recusada, rede bloqueando o dominio - o navegador
@@ -108,10 +128,14 @@ export async function callSync(params: SyncCallParams): Promise<SyncCallResult> 
     return { ok: false, kind: 'unexpected_response' }
   }
 
+  // `exactOptionalPropertyTypes`: `data`/`capabilities` so podem faltar,
+  // nunca valer `undefined` explicitamente - por isso o spread condicional,
+  // em vez de so passar os campos direto.
   return {
     ok: true,
     revision: parsed.data.revision,
     checksum: parsed.data.checksum,
-    data: parsed.data.data,
+    ...(parsed.data.data === undefined ? {} : { data: parsed.data.data }),
+    ...(parsed.data.capabilities === undefined ? {} : { capabilities: parsed.data.capabilities }),
   }
 }

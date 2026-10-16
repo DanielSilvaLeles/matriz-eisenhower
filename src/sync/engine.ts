@@ -4,16 +4,27 @@
  * app, focar a aba, a cada 60s visivel, 3s apos editar, voltar a conexao,
  * botao/atalho "Sincronizar agora" - ver src/sync/triggers.ts) atraves de
  * `runSync()`, que de-duplica chamadas concorrentes.
+ *
+ * Extensao "Anotações" (docs/prompt-anotacoes.md secao 6.3): antes de
+ * puxar o arquivo inteiro, um `action: 'status'` barato (so revision +
+ * checksum, sem `data`) decide se vale a pena - se nada mudou no servidor
+ * desde a ultima sincronizacao confirmada E nao ha nada pendente aqui, o
+ * ciclo todo e pulado. So entra em jogo quando ja houve uma sincronizacao
+ * confirmada antes (`lastConfirmedRevision !== null`) - no primeiro sync
+ * de todos nao ha nada para comparar, e o ciclo completo roda direto.
  */
-import { applyMergedState, readLocalState, type LocalSyncSnapshot } from '@/db/syncRepo.ts'
-import { clearPending } from '@/db/metaRepo.ts'
-import { getDB, type MatrizDB } from '@/db/schema.ts'
+import { getDeviceName } from '@/db/device.ts'
+import { readLocalState, type LocalSyncSnapshot } from '@/db/syncRepo.ts'
+import { getDB } from '@/db/schema.ts'
 import { computeChecksum } from '@/domain/checksum.ts'
 import { mergeState, type SyncableState } from '@/domain/merge.ts'
+import { buildConflictCopies, detectNoteConflicts } from '@/domain/noteMerge.ts'
 import { CURRENT_SCHEMA_VERSION } from '@/domain/schema.ts'
 import { createStore } from '@/ui/store.ts'
 import { callSync, type SyncErrorKind } from './client.ts'
 import { getSyncToken, getSyncUrl, isSyncConfigured } from './config.ts'
+import { applyAndConfirm, buildSummary } from './engineApply.ts'
+import { isPayloadNearLimit } from './payloadSize.ts'
 
 const MAX_CONFLICT_RETRIES = 3
 
@@ -27,75 +38,35 @@ export type SyncStatus =
 
 export const syncStatusStore = createStore<SyncStatus>({ kind: 'idle' })
 
-function remoteAsSyncable(data: { tasks: SyncableState['tasks']; task_events: SyncableState['taskEvents']; people: SyncableState['people'] }): SyncableState {
-  return { tasks: data.tasks, taskEvents: data.task_events, people: data.people }
-}
-
-/** Quantas tarefas de `after` são novas ou mudaram em relação a `before` (por id + updated_at). */
-function countChanged(before: SyncableState['tasks'], after: SyncableState['tasks']): number {
-  const byId = new Map(before.map((task) => [task.id, task]))
-  let count = 0
-  for (const task of after) {
-    const prior = byId.get(task.id)
-    if (!prior || prior.updated_at !== task.updated_at) count++
-  }
-  return count
-}
-
-function pluralize(count: number, singular: string, plural: string): string {
-  return `${count} ${count === 1 ? singular : plural}`
-}
-
-/** A tarefa com esse id tem o MESMO valor nos dois estados (comparacao profunda via JSON). */
-function taskUnchanged(a: SyncableState, b: SyncableState, taskId: string): boolean {
-  const ta = a.tasks.find((task) => task.id === taskId)
-  const tb = b.tasks.find((task) => task.id === taskId)
-  return JSON.stringify(ta) === JSON.stringify(tb)
-}
+/**
+ * Aviso previo de payload grande (docs/prompt-anotacoes.md secao 6.3) -
+ * atualizado a cada ciclo (mesmo no caminho rapido "nada para enviar"),
+ * para a pessoa ver o aviso antes do push falhar de verdade. Store
+ * separado do `syncStatusStore` porque e ortogonal ao resultado do ciclo -
+ * um sync "Confirmado" pode estar perto do limite mesmo assim.
+ */
+export const payloadWarningStore = createStore<boolean>(false)
 
 /**
- * Grava o resultado do ciclo e confirma a pendencia - o unico lugar que
- * faz isso, chamado pelos dois pontos de saida bem-sucedida do ciclo
- * (nada para empurrar, e push+verificacao OK).
- *
- * **Bug real relatado em produção:** mover uma tarefa (ou qualquer outra
- * edicao) ENQUANTO um ciclo de sync estava em voo desfazia o movimento -
- * `merged` foi calculado a partir do snapshot de `readLocalState` tirado
- * no INÍCIO do ciclo; se a pessoa movesse uma tarefa já existente nesse
- * meio-tempo, essa tarefa (com id presente tanto no snapshot quanto em
- * `merged`, só que com o quadrante antigo) tinha seu valor sobrescrito de
- * volta pelo `bulkPut` de `applyMergedState` - diferente do bug de tarefa
- * NOVA já corrigido antes (que `bulkPut` já protege, por nunca tocar um id
- * ausente de `merged`), aqui o id JÁ estava em `merged`, só que desatualizado.
- *
- * Corrigido relendo o estado local de novo bem antes de gravar
- * (`readLocalState` mais uma vez, o mais perto possível da escrita) e
- * mesclando esse estado FRESCO com `merged` usando a MESMA regra de
- * "vence o `updated_at` mais recente" (`mergeState`) já usada em todo o
- * resto do app - a edição em voo, por ter acontecido por último, sempre
- * vence. O id dessa tarefa fica de fora de `confirmedIds` (ver
- * `taskUnchanged`), então a pendência dela não é limpa por engano -
- * continua marcada para o PRÓXIMO ciclo empurrar de verdade.
+ * Compatibilidade com o script antigo (docs/prompt-anotacoes.md secao
+ * 1.6): detectado pela AUSENCIA de `capabilities.notes` na resposta de
+ * `pull`/`ping` - um script publicado antes desta extensao simplesmente
+ * nao conhece esse campo. Enquanto `notesSupported` for `false`, o ciclo
+ * continua sincronizando tarefas normalmente, mas NUNCA envia nem recebe
+ * anotacoes do servidor - elas ficam so locais, sempre marcadas pendentes,
+ * ate a pessoa reimplantar o `Code.gs` novo (apps-script/README.md).
  */
-async function applyAndConfirm(
-  db: MatrizDB,
-  local: LocalSyncSnapshot,
-  merged: SyncableState,
-  revision: number,
-  checksum: string,
-): Promise<void> {
-  const latestLocal = await readLocalState(db)
-  const now = new Date().toISOString()
-  const finalState = mergeState(latestLocal, merged, now)
-  await applyMergedState(db, finalState)
-  const confirmedIds = local.pendingIds.filter((id) => taskUnchanged(finalState, merged, id))
-  await clearPending(db, revision, checksum, confirmedIds)
-}
+export const scriptCapabilityStore = createStore<{ readonly notesSupported: boolean }>({
+  notesSupported: true,
+})
 
-function buildSummary(remoteBefore: SyncableState, local: SyncableState, merged: SyncableState): string {
-  const sent = countChanged(remoteBefore.tasks, merged.tasks)
-  const received = countChanged(local.tasks, merged.tasks)
-  return `${pluralize(sent, 'enviada', 'enviadas')}, ${pluralize(received, 'recebida', 'recebidas')} de outro aparelho. Confirmado.`
+function remoteAsSyncable(data: {
+  tasks: SyncableState['tasks']
+  task_events: SyncableState['taskEvents']
+  people: SyncableState['people']
+  notes: SyncableState['notes']
+}): SyncableState {
+  return { tasks: data.tasks, taskEvents: data.task_events, people: data.people, notes: data.notes }
 }
 
 let syncInFlight: Promise<void> | null = null
@@ -110,6 +81,27 @@ export function runSync(): Promise<void> {
     syncInFlight = null
   })
   return syncInFlight
+}
+
+/**
+ * Verifica barato (so `status`) se vale a pena puxar o arquivo inteiro.
+ * So pula o ciclo quando NAO ha nada pendente aqui E a revisao/checksum do
+ * servidor sao exatamente os que este aparelho confirmou por ultimo - caso
+ * contrario (primeiro sync, algo pendente, ou servidor mudou) o ciclo
+ * completo decide por si so.
+ */
+async function skipBecauseNothingChanged(
+  url: string,
+  token: string,
+  local: LocalSyncSnapshot,
+): Promise<boolean> {
+  if (local.pendingIds.length > 0) return false
+  if (local.lastConfirmedRevision === null || local.lastConfirmedChecksum === null) return false
+
+  const status = await callSync({ url, token, action: 'status' })
+  // Erro de verdade (rede, token...): deixa o ciclo completo tratar.
+  if (!status.ok) return false
+  return status.revision === local.lastConfirmedRevision && status.checksum === local.lastConfirmedChecksum
 }
 
 async function runSyncInternal(): Promise<void> {
@@ -127,11 +119,26 @@ async function runSyncInternal(): Promise<void> {
   const db = getDB()
   const url = getSyncUrl()
   const token = getSyncToken()
+  const device = getDeviceName()
+
+  const localBeforeStatusCheck = await readLocalState(db)
+  if (await skipBecauseNothingChanged(url, token, localBeforeStatusCheck)) {
+    syncStatusStore.set({
+      kind: 'confirmed',
+      at: new Date().toISOString(),
+      summary: 'Nada novo - nenhuma tarefa ou anotação mudou desde a última sincronização.',
+    })
+    return
+  }
 
   for (let attempt = 1; attempt <= MAX_CONFLICT_RETRIES; attempt++) {
     const pulled = await callSync({ url, token, action: 'pull' })
     if (!pulled.ok) {
       syncStatusStore.set({ kind: 'error', reason: pulled.kind })
+      return
+    }
+    if (!pulled.data) {
+      syncStatusStore.set({ kind: 'error', reason: 'unexpected_response' })
       return
     }
 
@@ -146,21 +153,53 @@ async function runSyncInternal(): Promise<void> {
       return
     }
 
+    // Compatibilidade com o script antigo (docs/prompt-anotacoes.md secao
+    // 1.6): a AUSENCIA de `capabilities.notes` - nao um valor `false` - e
+    // como um script publicado antes desta extensao se identifica, so por
+    // nunca ter ouvido falar deste campo.
+    const notesSupported = pulled.capabilities?.notes === true
+    scriptCapabilityStore.set({ notesSupported })
+
     const remoteBefore = remoteAsSyncable(pulled.data)
     const local = await readLocalState(db)
     const now = new Date().toISOString()
+
+    // Edicao concorrente genuina de anotacao (docs/prompt-anotacoes.md
+    // secao 6.2): detectada ANTES da uniao generica, porque so aqui se
+    // sabe quem e o "perdedor" que precisa virar copia - `mergeState`
+    // sozinho so escolhe um vencedor e descartaria o outro texto. Num
+    // script antigo `remoteBefore.notes` e sempre `[]` (a chave nem
+    // existe na resposta), entao isto naturalmente nunca acha conflito -
+    // nao precisa de um `if (notesSupported)` para isso especificamente.
+    const conflicts = detectNoteConflicts(
+      local.notes,
+      remoteBefore.notes,
+      local.pendingIds,
+      local.lastConfirmedAt,
+    )
     const merged = mergeState(local, remoteBefore, now)
-    const mergedChecksum = await computeChecksum(merged)
+    const conflictCopies = buildConflictCopies(conflicts, now, device, () => crypto.randomUUID())
+    const mergedWithConflicts: SyncableState =
+      conflictCopies.length === 0 ? merged : { ...merged, notes: [...merged.notes, ...conflictCopies] }
+
+    payloadWarningStore.set(isPayloadNearLimit(mergedWithConflicts))
+
+    // `includeNotes: notesSupported` - um script antigo calcula o checksum
+    // SEM a chave `notes` (ver `apps-script/Code.gs` de antes desta
+    // extensao); incluir anotacoes no calculo aqui faria o checksum nunca
+    // bater com o que esse script devolve, mesmo sem nenhuma anotacao
+    // ter mudado (ver `src/domain/checksum.ts`, `includeNotes`).
+    const mergedChecksum = await computeChecksum(mergedWithConflicts, notesSupported)
 
     if (mergedChecksum === pulled.checksum) {
       // A mesclagem nao gerou diferenca em relacao ao servidor - nada para
       // empurrar (docs secao 6.1, passo 3). Ainda assim aplica local (pode
       // ter trazido mudanca de outro aparelho) e confirma.
-      await applyAndConfirm(db, local, merged, pulled.revision, pulled.checksum)
+      await applyAndConfirm(db, local, mergedWithConflicts, pulled.revision, pulled.checksum, notesSupported)
       syncStatusStore.set({
         kind: 'confirmed',
         at: now,
-        summary: buildSummary(remoteBefore, local, merged),
+        summary: buildSummary(remoteBefore, local, mergedWithConflicts, conflicts.length),
       })
       return
     }
@@ -170,11 +209,17 @@ async function runSyncInternal(): Promise<void> {
       token,
       action: 'push',
       baseRevision: pulled.revision,
+      // `legacyPush` (so quando !notesSupported): omite a chave `notes`
+      // do corpo de verdade enviado - nunca so `[]` - para o script
+      // antigo nao gravar/calcular checksum sobre um campo que ele nem
+      // sabe que existe (ver `src/sync/client.ts`).
+      legacyPush: !notesSupported,
       data: {
         schemaVersion: CURRENT_SCHEMA_VERSION,
-        tasks: [...merged.tasks],
-        task_events: [...merged.taskEvents],
-        people: [...merged.people],
+        tasks: [...mergedWithConflicts.tasks],
+        task_events: [...mergedWithConflicts.taskEvents],
+        people: [...mergedWithConflicts.people],
+        notes: [...mergedWithConflicts.notes],
       },
     })
 
@@ -193,17 +238,21 @@ async function runSyncInternal(): Promise<void> {
       syncStatusStore.set({ kind: 'error', reason: verify.kind })
       return
     }
-    const verifyChecksum = await computeChecksum(remoteAsSyncable(verify.data))
+    if (!verify.data) {
+      syncStatusStore.set({ kind: 'error', reason: 'unexpected_response' })
+      return
+    }
+    const verifyChecksum = await computeChecksum(remoteAsSyncable(verify.data), notesSupported)
     if (verifyChecksum !== mergedChecksum) {
       syncStatusStore.set({ kind: 'error', reason: 'unexpected_response' })
       return
     }
 
-    await applyAndConfirm(db, local, merged, pushed.revision, pushed.checksum)
+    await applyAndConfirm(db, local, mergedWithConflicts, pushed.revision, pushed.checksum, notesSupported)
     syncStatusStore.set({
       kind: 'confirmed',
       at: now,
-      summary: buildSummary(remoteBefore, local, merged),
+      summary: buildSummary(remoteBefore, local, mergedWithConflicts, conflicts.length),
     })
     return
   }

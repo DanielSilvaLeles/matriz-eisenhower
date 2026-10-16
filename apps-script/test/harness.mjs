@@ -147,6 +147,11 @@ check('ping com token certo da ok e revision 0 (banco vazio)', () => {
   assert.deepEqual(res.data.tasks, [])
 })
 
+check('ping devolve capabilities.notes - e assim que o front detecta um script atualizado (docs/prompt-anotacoes.md secao 1.6)', () => {
+  const res = doPost({ action: 'ping', token })
+  assert.deepEqual(res.capabilities, { notes: true, status: true })
+})
+
 // 4. pull banco vazio
 check('pull banco vazio: revision 0, dados vazios, checksum presente', () => {
   const res = doPost({ action: 'pull', token })
@@ -158,7 +163,7 @@ check('pull banco vazio: revision 0, dados vazios, checksum presente', () => {
 
 // 5. push invalido (sem baseRevision)
 check('push sem baseRevision da invalid', () => {
-  const res = doPost({ action: 'push', token, data: { schemaVersion: 1, tasks: [], task_events: [], people: [] } })
+  const res = doPost({ action: 'push', token, data: { schemaVersion: 1, tasks: [], task_events: [], people: [], notes: [] } })
   assert.equal(res.ok, false)
   assert.equal(res.error, 'invalid')
 })
@@ -175,7 +180,7 @@ let revisionAfterFirstPush
 check('primeiro push com baseRevision 0 funciona e volta revision 1', () => {
   const res = doPost({
     action: 'push', token, baseRevision: 0,
-    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [] },
+    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [], notes: [] },
   })
   assert.equal(res.ok, true)
   assert.equal(res.revision, 1)
@@ -192,7 +197,7 @@ check('pull depois do push devolve a tarefa gravada', () => {
 check('push com baseRevision desatualizado da conflict', () => {
   const res = doPost({
     action: 'push', token, baseRevision: 0, // devia ser 1 agora
-    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [] },
+    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [], notes: [] },
   })
   assert.equal(res.ok, false)
   assert.equal(res.error, 'conflict')
@@ -204,12 +209,12 @@ check('push que reduz drasticamente sem allowShrink e recusado', () => {
   for (let i = 0; i < 10; i++) manyTasks.push({ ...sampleTask, id: 't' + i })
   doPost({
     action: 'push', token, baseRevision: revisionAfterFirstPush,
-    data: { schemaVersion: 1, tasks: manyTasks, task_events: [], people: [] },
+    data: { schemaVersion: 1, tasks: manyTasks, task_events: [], people: [], notes: [] },
   })
   // agora o servidor tem 10 tarefas na revision 2; tenta reduzir para 1 sem allowShrink
   const res = doPost({
     action: 'push', token, baseRevision: 2,
-    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [] },
+    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [], notes: [] },
   })
   assert.equal(res.ok, false)
   assert.equal(res.error, 'invalid')
@@ -218,7 +223,7 @@ check('push que reduz drasticamente sem allowShrink e recusado', () => {
 check('o mesmo push com allowShrink:true e aceito', () => {
   const res = doPost({
     action: 'push', token, baseRevision: 2, allowShrink: true,
-    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [] },
+    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [], notes: [] },
   })
   assert.equal(res.ok, true)
   assert.equal(res.revision, 3)
@@ -227,10 +232,99 @@ check('o mesmo push com allowShrink:true e aceito', () => {
 check('push com tarefa invalida (status desconhecido) e recusado', () => {
   const res = doPost({
     action: 'push', token, baseRevision: 3,
-    data: { schemaVersion: 1, tasks: [{ ...sampleTask, status: 'nao_existe' }], task_events: [], people: [] },
+    data: { schemaVersion: 1, tasks: [{ ...sampleTask, status: 'nao_existe' }], task_events: [], people: [], notes: [] },
   })
   assert.equal(res.ok, false)
   assert.equal(res.error, 'invalid')
+})
+
+// 8. extensao "Anotações" (docs/prompt-anotacoes.md): action 'status' sem
+// dados, validacao de nota, e protecao de encolhimento tambem pra notas.
+check("action 'status' devolve a mesma revision/checksum do pull, sem `data`", () => {
+  const pull = doPost({ action: 'pull', token })
+  const status = doPost({ action: 'status', token })
+  assert.equal(status.ok, true)
+  assert.equal(status.revision, pull.revision)
+  assert.equal(status.checksum, pull.checksum)
+  assert.equal(status.data, undefined)
+})
+
+const sampleNote = {
+  id: 'n1', title: null, body: 'Texto da reuniao', tags: [],
+  created_at: '2026-10-15T10:00:00.000Z', updated_at: '2026-10-15T10:00:00.000Z',
+  deleted: false, deleted_at: null, device: 'pc empresa',
+}
+let revisionAfterNote
+check('push com anotacao valida e aceito', () => {
+  const res = doPost({
+    action: 'push', token, baseRevision: 3,
+    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [], notes: [sampleNote] },
+  })
+  assert.equal(res.ok, true)
+  assert.equal(res.data.notes.length, 1)
+  revisionAfterNote = res.revision
+})
+
+check('push com anotacao invalida (body nao e string) e recusado', () => {
+  const res = doPost({
+    action: 'push', token, baseRevision: revisionAfterNote,
+    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [], notes: [{ ...sampleNote, body: 123 }] },
+  })
+  assert.equal(res.ok, false)
+  assert.equal(res.error, 'invalid')
+})
+
+check('push que reduz anotacoes drasticamente sem allowShrink e recusado', () => {
+  const manyNotes = []
+  for (let i = 0; i < 10; i++) manyNotes.push({ ...sampleNote, id: 'n' + i })
+  const grown = doPost({
+    action: 'push', token, baseRevision: revisionAfterNote,
+    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [], notes: manyNotes },
+  })
+  assert.equal(grown.ok, true)
+
+  const res = doPost({
+    action: 'push', token, baseRevision: grown.revision,
+    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [], notes: [sampleNote] },
+  })
+  assert.equal(res.ok, false)
+  assert.equal(res.error, 'invalid')
+
+  const withAllowShrink = doPost({
+    action: 'push', token, baseRevision: grown.revision, allowShrink: true,
+    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [], notes: [sampleNote] },
+  })
+  assert.equal(withAllowShrink.ok, true)
+})
+
+// 9. Bug real encontrado e corrigido NESTA extensão (docs/prompt-anotacoes.md
+// secao 1.6): um `matriz.json` gravado por uma versao do script ANTERIOR a
+// esta extensao nao tem a chave `notes` - sem tolerar isso, `isValidData_`
+// rejeitava o arquivo INTEIRO na primeira leitura depois de reimplantar, e
+// `readStateFromFolder_` caia para `emptyData_()` - fazendo as tarefas de
+// verdade "desaparecerem" da tela assim que o script fosse atualizado.
+check('le um matriz.json antigo (sem a chave notes) sem perder as tarefas existentes', () => {
+  const folder = driveFolders[0]
+  const file = folder.files.find((f) => f.name === 'matriz.json' && !f.trashed)
+  assert.ok(file, 'esperava matriz.json ja existir dos pushes anteriores')
+
+  const beforePull = doPost({ action: 'pull', token })
+  const revisionBefore = beforePull.revision
+
+  // Reescreve o arquivo simulando o formato de ANTES desta extensao -
+  // mesma revisao, tarefas de verdade, mas sem `notes` nenhum.
+  file.setContent(JSON.stringify({
+    revision: revisionBefore,
+    updatedAt: new Date().toISOString(),
+    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [] },
+  }))
+
+  const res = doPost({ action: 'pull', token })
+  assert.equal(res.ok, true)
+  assert.equal(res.revision, revisionBefore)
+  assert.equal(res.data.tasks.length, 1, 'a tarefa existente nao pode desaparecer so por faltar `notes`')
+  assert.equal(res.data.tasks[0].id, sampleTask.id)
+  assert.deepEqual(res.data.notes, [], '`notes` ausente e normalizado para [], nunca rejeita o arquivo inteiro')
 })
 
 check('checksum do pull bate com o calculo independente em Node', () => {
@@ -245,7 +339,7 @@ check('checksum do pull bate com o calculo independente em Node', () => {
     return v
   }
   const byId = (l) => [...l].sort((a,b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-  const payload = { tasks: byId(res.data.tasks), task_events: byId(res.data.task_events), people: byId(res.data.people) }
+  const payload = { tasks: byId(res.data.tasks), task_events: byId(res.data.task_events), people: byId(res.data.people), notes: byId(res.data.notes) }
   const json = JSON.stringify(sortKeysDeep(payload))
   const expected = createHash('sha256').update(json, 'utf8').digest('hex')
   assert.equal(res.checksum, expected)

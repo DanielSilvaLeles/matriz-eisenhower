@@ -19,6 +19,7 @@ describe('getMeta', () => {
     expect(meta.pending_ids).toEqual([])
     expect(meta.last_confirmed_revision).toBeNull()
     expect(meta.last_confirmed_checksum).toBeNull()
+    expect(meta.last_confirmed_at).toBeNull()
     expect(meta.schema_version).toBe(2)
   })
 })
@@ -77,17 +78,18 @@ describe('clearPending', () => {
       await markPendingInTx(db, 'task-1')
     })
 
-    await clearPending(db, 5, 'abc123', ['task-1'])
+    await clearPending(db, 5, 'abc123', ['task-1'], '2026-10-15T12:00:00.000Z')
 
     const meta = await getMeta(db)
     expect(meta.pending_ids).toEqual([])
     expect(meta.last_confirmed_revision).toBe(5)
     expect(meta.last_confirmed_checksum).toBe('abc123')
+    expect(meta.last_confirmed_at).toBe('2026-10-15T12:00:00.000Z')
   })
 
   it('preserva o nome do aparelho ja configurado', async () => {
     const before = await getMeta(db)
-    await clearPending(db, 1, 'x', [])
+    await clearPending(db, 1, 'x', [], '2026-10-15T12:00:00.000Z')
     const after = await getMeta(db)
     expect(after.device_name).toBe(before.device_name)
   })
@@ -105,7 +107,7 @@ describe('clearPending', () => {
       await markPendingInTx(db, 'task-2')
     })
 
-    await clearPending(db, 5, 'abc123', ['task-1'])
+    await clearPending(db, 5, 'abc123', ['task-1'], '2026-10-15T12:00:00.000Z')
 
     const meta = await getMeta(db)
     expect(meta.pending_ids).toEqual(['task-2'])

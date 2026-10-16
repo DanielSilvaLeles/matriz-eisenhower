@@ -21,9 +21,13 @@ import { expect, test } from './fixtures.ts'
 const FAKE_URL = 'https://script.google.com/macros/s/teste-e2e/exec'
 const TOKEN = 'token-de-teste-com-pelo-menos-32-caracteres'
 
+function checksumOf(d: SyncData): Promise<string> {
+  return computeChecksum({ tasks: d.tasks, taskEvents: d.task_events, people: d.people, notes: d.notes })
+}
+
 function createFakeServer() {
   let revision = 0
-  let data: SyncData = { schemaVersion: 1, tasks: [], task_events: [], people: [] }
+  let data: SyncData = { schemaVersion: 1, tasks: [], task_events: [], people: [], notes: [] }
 
   async function handleRoute(route: Route): Promise<void> {
     const parsedBody = syncRequestSchema.safeParse(JSON.parse(route.request().postData() ?? '{}'))
@@ -38,13 +42,15 @@ function createFakeServer() {
       return
     }
 
+    const capabilities = { notes: true, status: true }
+
+    if (body.action === 'status') {
+      await route.fulfill({ json: { ok: true, revision, checksum: await checksumOf(data), capabilities } })
+      return
+    }
+
     if (body.action === 'ping' || body.action === 'pull') {
-      const checksum = await computeChecksum({
-        tasks: data.tasks,
-        taskEvents: data.task_events,
-        people: data.people,
-      })
-      await route.fulfill({ json: { ok: true, revision, checksum, data } })
+      await route.fulfill({ json: { ok: true, revision, checksum: await checksumOf(data), data, capabilities } })
       return
     }
 
@@ -57,12 +63,7 @@ function createFakeServer() {
       }
       data = parsedData.data
       revision += 1
-      const checksum = await computeChecksum({
-        tasks: data.tasks,
-        taskEvents: data.task_events,
-        people: data.people,
-      })
-      await route.fulfill({ json: { ok: true, revision, checksum, data } })
+      await route.fulfill({ json: { ok: true, revision, checksum: await checksumOf(data), data, capabilities } })
       return
     }
 

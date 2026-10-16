@@ -11,7 +11,7 @@ type ImportState =
   | { readonly phase: 'done' }
 
 function countsLine(counts: ImportCounts): string {
-  return `${counts.tasks} tarefas, ${counts.taskEvents} eventos, ${counts.people} pessoas`
+  return `${counts.tasks} tarefas, ${counts.taskEvents} eventos, ${counts.people} pessoas, ${counts.notes} anotações`
 }
 
 function backupCounts(backup: Backup): ImportCounts {
@@ -19,6 +19,7 @@ function backupCounts(backup: Backup): ImportCounts {
     tasks: backup.tasks.length,
     taskEvents: backup.task_events.length,
     people: backup.people.length,
+    notes: backup.notes.length,
   }
 }
 

@@ -64,12 +64,52 @@ test('busca encontra uma anotação pelo texto, ignorando acentos', async ({ pag
   await page.getByPlaceholder('Comece a digitar…').fill('Reunião sobre orçamento do próximo trimestre')
   await expect(page.getByText('Salvo')).toBeVisible()
 
-  await page.getByRole('button', { name: 'Anotações' }).click()
+  await page.getByRole('button', { name: 'Anotações', exact: true }).click()
   await page.locator('#notes-search').fill('orcamento')
 
   await expect(
     page.getByRole('button', { name: /Reunião sobre orçamento do próximo trimestre/u }),
   ).toBeVisible()
+})
+
+test('linha de ação "[ ] " vira tarefa na caixa de entrada, com link de volta para a anotação', async ({
+  page,
+}) => {
+  const main = page.locator('main')
+
+  await page.getByRole('button', { name: 'Anotação' }).click()
+  const editor = page.getByPlaceholder('Comece a digitar…')
+  await editor.fill('Reunião\n[ ] Cobrar proposta do fornecedor')
+  await expect(page.getByText('Salvo')).toBeVisible()
+
+  const sendButton = page.getByRole('button', { name: 'Caixa de entrada' })
+  await expect(sendButton).toBeVisible()
+  await sendButton.click()
+
+  // A linha de ação some da lista de pendentes do editor (foi enviada).
+  await expect(sendButton).toHaveCount(0)
+  // O corpo da anotação mostra o marcador trocado por "[→]".
+  await expect(editor).toHaveValue(/\[→\] Cobrar proposta do fornecedor/u)
+
+  // A tarefa aparece na caixa de entrada - precisa voltar para a Matriz
+  // primeiro, a tela de anotações não mostra a caixa de entrada.
+  await page.getByRole('button', { name: 'Matriz' }).click()
+  const inboxItem = main.locator('[data-task-list="inbox"] [data-task-id]').filter({
+    hasText: 'Cobrar proposta do fornecedor',
+  })
+  await expect(inboxItem).toBeVisible()
+
+  // Enter sobre a tarefa focada abre o detalhe (useGlobalShortcuts.ts) -
+  // mesmo contrato de `data-task-anchor` que os itens de quadrante usam.
+  await inboxItem.click()
+  await page.keyboard.press('Enter')
+
+  const originLink = page.getByRole('button', { name: 'Ver anotação de origem' })
+  await expect(originLink).toBeVisible()
+  await originLink.click()
+
+  // Volta para a MESMA anotação, com a linha já marcada como enviada.
+  await expect(page.getByPlaceholder('Comece a digitar…')).toHaveValue(/\[→\] Cobrar proposta do fornecedor/u)
 })
 
 test('menu inferior do celular: uma única barra, Anotar abre o editor focado', async ({ page }) => {

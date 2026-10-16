@@ -1,9 +1,12 @@
+import { NotebookPen } from 'lucide-react'
 import { useId, useState } from 'react'
 import { getDB } from '@/db/schema.ts'
 import { editTaskFields } from '@/db/tasksRepo.lifecycle.ts'
 import { quadrantMeta } from '@/domain/quadrant.ts'
 import type { Task } from '@/domain/schema.ts'
+import { selectedTaskIdStore } from '@/ui/detail/store.ts'
 import { useDebouncedCallback } from '@/ui/hooks/useDebouncedCallback.ts'
+import { navigate } from '@/ui/router/store.ts'
 
 /** Pausa de digitação antes do autosave entrar em ação (ver useDebouncedCallback.ts). */
 const AUTOSAVE_DELAY_MS = 1_500
@@ -98,6 +101,22 @@ export function TaskDetailFields({ task, peopleNames }: TaskDetailFieldsProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
+      {task.source_note_id === null ? null : (
+        <button
+          type="button"
+          onClick={() => {
+            const noteId = task.source_note_id
+            if (noteId === null) return
+            selectedTaskIdStore.set(null)
+            navigate({ screen: 'note-editor', noteId })
+          }}
+          className="inline-flex w-fit items-center gap-1.5 self-start rounded-md border border-border px-2.5 py-1.5 text-[12px] text-text-muted hover:bg-surface-muted hover:text-text"
+        >
+          <NotebookPen className="size-3.5" aria-hidden="true" />
+          Ver anotação de origem
+        </button>
+      )}
+
       <div>
         <label htmlFor={titleId} className="sr-only">
           Título

@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applyBackup, currentCounts, exportBackup } from './backup.ts'
 import { getMeta } from './metaRepo.ts'
+import { createNoteWithContent } from './notesRepo.ts'
 import { MatrizDB } from './schema.ts'
 import { addTaskToQuadrant } from './tasksRepo.ts'
 import { parseBackup } from '@/domain/backup.ts'
@@ -28,6 +29,13 @@ describe('exportBackup', () => {
     expect(backup.people).toHaveLength(0)
   })
 
+  it('inclui as anotações existentes', async () => {
+    await createNoteWithContent(db, 'note-1', 'Anotação de reunião')
+    const backup = await exportBackup(db)
+    expect(backup.notes).toHaveLength(1)
+    expect(backup.notes[0]?.body).toBe('Anotação de reunião')
+  })
+
   it('o resultado passa pela validacao de parseBackup (roundtrip)', async () => {
     await addTaskToQuadrant(db, 'q1', 'Revisar PR')
     const backup = await exportBackup(db)
@@ -41,7 +49,7 @@ describe('currentCounts', () => {
   it('conta o que existe agora em cada tabela', async () => {
     await addTaskToQuadrant(db, 'q1', 'Uma tarefa')
     const counts = await currentCounts(db)
-    expect(counts).toEqual({ tasks: 1, taskEvents: 1, people: 0 })
+    expect(counts).toEqual({ tasks: 1, taskEvents: 1, people: 0, notes: 0 })
   })
 })
 
@@ -84,5 +92,19 @@ describe('applyBackup', () => {
 
     const meta = await getMeta(db)
     expect(meta.pending_ids).toEqual([task.id])
+  })
+
+  it('restaura anotações e as marca pendentes tambem', async () => {
+    const note = await createNoteWithContent(db, 'note-1', 'Anotação restaurada')
+    const backup = await exportBackup(db)
+
+    await applyBackup(db, backup)
+
+    const notes = await db.notes.toArray()
+    expect(notes).toHaveLength(1)
+    expect(notes[0]?.body).toBe('Anotação restaurada')
+
+    const meta = await getMeta(db)
+    expect(meta.pending_ids).toContain(note.id)
   })
 })

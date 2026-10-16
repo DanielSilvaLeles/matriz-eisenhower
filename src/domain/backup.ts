@@ -8,9 +8,11 @@
 import { z } from 'zod'
 import {
   CURRENT_SCHEMA_VERSION,
+  noteSchema,
   personSchema,
   taskEventSchema,
   taskSchema,
+  type Note,
   type Person,
   type Task,
   type TaskEvent,
@@ -22,6 +24,13 @@ export const backupSchema = z.object({
   tasks: z.array(taskSchema),
   task_events: z.array(taskEventSchema),
   people: z.array(personSchema),
+  /**
+   * `.default([])` - compatibilidade com um backup exportado ANTES da
+   * extensão "Anotações" (docs/prompt-anotacoes.md seção 7): esse arquivo
+   * não tem a chave `notes` de jeito nenhum, e importá-lo não pode falhar
+   * só por isso.
+   */
+  notes: z.array(noteSchema).default([]),
 })
 export type Backup = z.infer<typeof backupSchema>
 
@@ -29,6 +38,7 @@ export interface BackupContents {
   readonly tasks: readonly Task[]
   readonly taskEvents: readonly TaskEvent[]
   readonly people: readonly Person[]
+  readonly notes: readonly Note[]
 }
 
 export function buildBackup(contents: BackupContents, exportedAt: string): Backup {
@@ -38,6 +48,7 @@ export function buildBackup(contents: BackupContents, exportedAt: string): Backu
     tasks: [...contents.tasks],
     task_events: [...contents.taskEvents],
     people: [...contents.people],
+    notes: [...contents.notes],
   }
 }
 

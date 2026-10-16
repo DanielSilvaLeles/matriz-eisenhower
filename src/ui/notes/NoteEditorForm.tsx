@@ -1,9 +1,11 @@
-import { Clock } from 'lucide-react'
+import { ArrowRight, Clock } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { discardEmptyNote } from '@/db/notesRepo.lifecycle.ts'
+import { sendActionLineToInbox } from '@/db/notesRepo.actionLines.ts'
 import { createNoteWithContent, editNoteFields } from '@/db/notesRepo.ts'
 import { getDeviceName } from '@/db/device.ts'
 import { getDB } from '@/db/schema.ts'
+import { extractActionLines, markActionLineSent } from '@/domain/actionLines.ts'
 import { continuationPrefixFor } from '@/domain/note.ts'
 import type { Note } from '@/domain/schema.ts'
 import { useDebouncedCallback } from '@/ui/hooks/useDebouncedCallback.ts'
@@ -48,28 +50,27 @@ export function NoteEditorForm({ note, composeId }: NoteEditorFormProps) {
   const createdRef = useRef(note !== null)
   const isComposeSession = note === null
 
-  function persist(nextTitle: string, nextBody: string): void {
+  function persist(nextTitle: string, nextBody: string): Promise<void> {
     const db = getDB()
     const device = getDeviceName()
     const trimmedTitle = nextTitle.trim() === '' ? null : nextTitle.trim()
 
     if (!createdRef.current) {
       // Ainda não existe no banco - nada a fazer enquanto o corpo for vazio.
-      if (nextBody.trim() === '') return
+      if (nextBody.trim() === '') return Promise.resolve()
       createdRef.current = true
       setSaveState('saving')
-      createNoteWithContent(db, idRef.current, nextBody, trimmedTitle, device)
+      return createNoteWithContent(db, idRef.current, nextBody, trimmedTitle, device)
         .then(() => {
           setSaveState('saved')
         })
         .catch((error: unknown) => {
           console.error('Falha ao criar a anotação', error)
         })
-      return
     }
 
     setSaveState('saving')
-    editNoteFields(db, idRef.current, { title: trimmedTitle, body: nextBody }, device)
+    return editNoteFields(db, idRef.current, { title: trimmedTitle, body: nextBody }, device)
       .then(() => {
         setSaveState('saved')
       })
@@ -79,7 +80,7 @@ export function NoteEditorForm({ note, composeId }: NoteEditorFormProps) {
   }
 
   const autosave = useDebouncedCallback((nextTitle: string, nextBody: string) => {
-    persist(nextTitle, nextBody)
+    void persist(nextTitle, nextBody)
   }, AUTOSAVE_DELAY_MS)
 
   /**
@@ -88,26 +89,53 @@ export function NoteEditorForm({ note, composeId }: NoteEditorFormProps) {
    * pendente e grava na hora, ou descarta em silêncio se a anotação de
    * compose nunca ganhou conteúdo.
    */
-  function flush(currentTitle: string, currentBody: string): void {
+  function flush(currentTitle: string, currentBody: string): Promise<void> {
     autosave.cancel()
     if (currentBody.trim() === '') {
       if (isComposeSession && createdRef.current) {
-        discardEmptyNote(getDB(), idRef.current).catch((error: unknown) => {
+        createdRef.current = false
+        return discardEmptyNote(getDB(), idRef.current).catch((error: unknown) => {
           console.error('Falha ao descartar anotação vazia', error)
         })
-        createdRef.current = false
       }
-      return
+      return Promise.resolve()
     }
-    persist(currentTitle, currentBody)
+    return persist(currentTitle, currentBody)
+  }
+
+  /**
+   * "De anotação para tarefa" (`docs/prompt-anotacoes.md` seção 5.1): envia
+   * o texto da linha para a caixa de entrada e troca o marcador por `[→]`.
+   * Dá `flush` ANTES de chamar `sendActionLineToInbox` - essa função lê o
+   * corpo já persistido no banco para decidir o que mudar; sem esperar um
+   * autosave pendente terminar primeiro, ela poderia ler uma versão
+   * desatualizada e a resposta (marcador trocado) não bater com o que a
+   * tela está mostrando.
+   */
+  function handleSendLine(lineIndex: number): void {
+    if (!createdRef.current) return
+    flush(title, body)
+      .then(() => sendActionLineToInbox(getDB(), idRef.current, lineIndex))
+      .then(() => {
+        setBody((current) => markActionLineSent(current, lineIndex))
+      })
+      .catch((error: unknown) => {
+        console.error('Falha ao enviar linha de ação para a caixa de entrada', error)
+      })
   }
 
   useEffect(() => {
     function handleVisibility(): void {
-      if (document.visibilityState === 'hidden') flush(title, body)
+      if (document.visibilityState === 'hidden') {
+        flush(title, body).catch((error: unknown) => {
+          console.error('Falha ao salvar a anotação ao sair da aba', error)
+        })
+      }
     }
     function handlePageHide(): void {
-      flush(title, body)
+      flush(title, body).catch((error: unknown) => {
+        console.error('Falha ao salvar a anotação ao fechar a página', error)
+      })
     }
     document.addEventListener('visibilitychange', handleVisibility)
     window.addEventListener('pagehide', handlePageHide)
@@ -177,7 +205,9 @@ export function NoteEditorForm({ note, composeId }: NoteEditorFormProps) {
           autosave.run(event.target.value, body)
         }}
         onBlur={() => {
-          flush(title, body)
+          flush(title, body).catch((error: unknown) => {
+            console.error('Falha ao salvar a anotação', error)
+          })
         }}
         placeholder="Título (opcional)"
         className="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[15px] font-semibold text-text placeholder:text-text-subtle focus-visible:border-focus"
@@ -192,7 +222,9 @@ export function NoteEditorForm({ note, composeId }: NoteEditorFormProps) {
         }}
         onKeyDown={handleBodyKeyDown}
         onBlur={() => {
-          flush(title, body)
+          flush(title, body).catch((error: unknown) => {
+            console.error('Falha ao salvar a anotação', error)
+          })
         }}
         // eslint-disable-next-line jsx-a11y/no-autofocus -- so chega aqui apos a pessoa escolher "Anotar" de proposito (docs secao 11: "em ate 2s o cursor esta no editor").
         autoFocus
@@ -220,6 +252,45 @@ export function NoteEditorForm({ note, composeId }: NoteEditorFormProps) {
         <Clock className="size-3.5" aria-hidden="true" />
         Inserir hora
       </button>
+
+      {createdRef.current ? <ActionLinesSection body={body} onSend={handleSendLine} /> : null}
+    </div>
+  )
+}
+
+/**
+ * Lista as linhas `[ ]`/`- [ ] ` pendentes de envio (`docs/prompt-anotacoes.md`
+ * seção 5.1) com o botão "→ Caixa de entrada" por linha. Só para anotações
+ * já existentes - durante o compose (`note === null`) o id ainda não
+ * necessariamente está gravado no banco, e `sendActionLineToInbox` precisa
+ * ler a anotação de lá.
+ */
+function ActionLinesSection({ body, onSend }: { body: string; onSend: (lineIndex: number) => void }) {
+  const pending = extractActionLines(body).filter((line) => !line.sent && line.text !== '')
+  if (pending.length === 0) return null
+
+  return (
+    <div className="border-t border-border pt-3">
+      <h3 className="mb-2 text-xs font-semibold tracking-wide text-text-muted uppercase">
+        Itens de ação
+      </h3>
+      <ul className="space-y-1.5">
+        {pending.map((line) => (
+          <li key={line.lineIndex} className="flex items-center justify-between gap-2">
+            <span className="min-w-0 flex-1 truncate text-[13px] text-text">{line.text}</span>
+            <button
+              type="button"
+              onClick={() => {
+                onSend(line.lineIndex)
+              }}
+              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-text-muted hover:bg-surface-muted hover:text-text"
+            >
+              <ArrowRight className="size-3" aria-hidden="true" />
+              Caixa de entrada
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

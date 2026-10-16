@@ -118,6 +118,7 @@ export function addTaskToInbox(
   tags: readonly string[],
   source: TaskSource,
   device: string = getDeviceName(),
+  sourceNoteId: string | null = null,
 ): Promise<Task> {
   notifyLocalWrite()
   return db.transaction('rw', db.tasks, db.task_events, db.meta, async () => {
@@ -134,6 +135,7 @@ export function addTaskToInbox(
         device,
         source,
         tags,
+        sourceNoteId,
       },
       now,
     )

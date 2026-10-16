@@ -21,11 +21,13 @@ export class NoteNotFoundError extends Error {
   }
 }
 
-function nowISO(): string {
+/** Exportado so para `notesRepo.actionLines.ts` reusar (mesmo arquivo logico, dividido pelo limite de classes do lint). */
+export function nowISO(): string {
   return new Date().toISOString()
 }
 
-async function getNoteOrThrow(db: MatrizDB, noteId: string): Promise<Note> {
+/** Exportado so para `notesRepo.actionLines.ts` reusar. */
+export async function getNoteOrThrow(db: MatrizDB, noteId: string): Promise<Note> {
   const note = await db.notes.get(noteId)
   if (!note) throw new NoteNotFoundError(noteId)
   return note

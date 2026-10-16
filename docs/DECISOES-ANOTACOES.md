@@ -104,7 +104,41 @@ não é gerada por engano de falta de granularidade, a regra padrão
 "`updated_at` mais recente vence" (já usada para tarefas) ainda se aplica
 sem perder nada, só sem o aviso extra de "revise, pode ter duas versões".
 
-## 8. Detecção de script antigo: ausência de `capabilities`, nunca um valor explícito `false`
+## 8. Elo com a matriz: sem "modo de leitura" nem seleção de texto, só botão por linha
+
+**Prompt pede (seção 5.1):** "No modo de leitura da anotação, cada linha
+assim mostra um botão '→ Caixa de entrada'. No modo de edição, selecionar
+um trecho de texto oferece 'Enviar para caixa de entrada'."
+
+**Decisão:** o editor desta extensão (fase 1) nunca teve um "modo de
+leitura" separado do de edição - é sempre um `<textarea>`. Em vez de
+construir uma segunda forma de exibir o corpo (texto renderizado, não
+editável, com os marcadores de ação clicáveis) só para hospedar esse
+botão, ele aparece numa lista própria ("Itens de ação") logo abaixo do
+campo, sempre visível quando a anotação já foi gravada - detecta as
+linhas `[ ]`/`- [ ] ` pendentes com a mesma função pura
+(`extractActionLines`, `src/domain/actionLines.ts`) que o modo de leitura
+teria usado. A alternativa de **selecionar um trecho de texto** e
+oferecer "Enviar para caixa de entrada" para QUALQUER seleção (não só uma
+linha já marcada) não foi implementada - exigiria detectar seleção de
+texto no textarea e uma barra de ferramentas flutuante, bem mais
+trabalho para um caminho secundário quando o caminho principal (marcar a
+linha com `[ ]` e ter o botão aparecer) já cobre o critério de aceite
+central da seção ("uma linha de ação vira tarefa, com link de volta").
+Registrado aqui como simplificação deliberada, não como lacuna
+escondida - se um "modo de leitura" chegar a existir por outro motivo no
+futuro, o botão por linha pode migrar para lá sem mudar
+`extractActionLines`/`markActionLineSent`, que já são puros e já têm
+teste próprio.
+
+Também notado: o botão "→ Caixa de entrada" só aparece depois que a
+anotação já foi gravada no banco (debounce de 500ms já disparado) - uma
+anotação sendo composta pela primeira vez (ainda sem id persistido) não
+mostra a lista de itens de ação até o primeiro autosave confirmar.
+Nenhum teste manual encontrou isso incômodo na prática (o debounce é
+curto o bastante), mas fica registrado para quem notar o atraso.
+
+## 9. Detecção de script antigo: ausência de `capabilities`, nunca um valor explícito `false`
 
 **Prompt pede (seção 1.6, obrigatório):** "se o script não suportar a ação
 `status` ou a coleção de anotações (detecte pelo `ping`, que deve passar a

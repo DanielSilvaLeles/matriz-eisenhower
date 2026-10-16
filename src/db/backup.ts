@@ -11,13 +11,14 @@ import { getMeta } from './metaRepo.ts'
 import { LOCAL_META_KEY, type MatrizDB } from './schema.ts'
 
 export async function exportBackup(db: MatrizDB): Promise<Backup> {
-  const [tasks, taskEvents, people] = await Promise.all([
+  const [tasks, taskEvents, people, notes] = await Promise.all([
     db.tasks.toArray(),
     db.task_events.toArray(),
     db.people.toArray(),
+    db.notes.toArray(),
   ])
 
-  const contents: BackupContents = { tasks, taskEvents, people }
+  const contents: BackupContents = { tasks, taskEvents, people, notes }
   return buildBackup(contents, new Date().toISOString())
 }
 
@@ -25,16 +26,18 @@ export interface ImportCounts {
   readonly tasks: number
   readonly taskEvents: number
   readonly people: number
+  readonly notes: number
 }
 
 /** Quantos registros existem agora, para a pre-visualizacao "isto vai ser substituido". */
 export async function currentCounts(db: MatrizDB): Promise<ImportCounts> {
-  const [tasks, taskEvents, people] = await Promise.all([
+  const [tasks, taskEvents, people, notes] = await Promise.all([
     db.tasks.count(),
     db.task_events.count(),
     db.people.count(),
+    db.notes.count(),
   ])
-  return { tasks, taskEvents, people }
+  return { tasks, taskEvents, people, notes }
 }
 
 /**
@@ -49,17 +52,21 @@ export async function currentCounts(db: MatrizDB): Promise<ImportCounts> {
  */
 export function applyBackup(db: MatrizDB, backup: Backup): Promise<void> {
   notifyLocalWrite()
-  return db.transaction('rw', db.tasks, db.task_events, db.people, db.meta, async () => {
-    await Promise.all([db.tasks.clear(), db.task_events.clear(), db.people.clear()])
+  return db.transaction('rw', db.tasks, db.task_events, db.people, db.notes, db.meta, async () => {
+    await Promise.all([db.tasks.clear(), db.task_events.clear(), db.people.clear(), db.notes.clear()])
     await Promise.all([
       db.tasks.bulkAdd(backup.tasks),
       db.task_events.bulkAdd(backup.task_events),
       db.people.bulkAdd(backup.people),
+      db.notes.bulkAdd(backup.notes),
     ])
 
     const meta = await getMeta(db)
     await db.meta.put(
-      { ...meta, pending_ids: backup.tasks.map((task) => task.id) },
+      {
+        ...meta,
+        pending_ids: [...backup.tasks.map((task) => task.id), ...backup.notes.map((note) => note.id)],
+      },
       LOCAL_META_KEY,
     )
   })

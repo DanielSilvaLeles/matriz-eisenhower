@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildBackup, parseBackup } from './backup.ts'
+import { createNote } from './note.ts'
 import { CURRENT_SCHEMA_VERSION } from './schema.ts'
 import { createTask } from './task.ts'
 
@@ -19,22 +20,32 @@ function sampleTask() {
   )
 }
 
+function sampleNote() {
+  return createNote({ id: '55555555-5555-4555-8555-555555555555', body: 'Anotação de teste', device: 'pc empresa' }, NOW)
+}
+
 describe('buildBackup', () => {
   it('inclui a versao do schema atual e o instante da exportacao', () => {
     const { task, event } = sampleTask()
-    const backup = buildBackup({ tasks: [task], taskEvents: [event], people: [] }, NOW)
+    const backup = buildBackup({ tasks: [task], taskEvents: [event], people: [], notes: [] }, NOW)
 
     expect(backup.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     expect(backup.exportedAt).toBe(NOW)
     expect(backup.tasks).toEqual([task])
     expect(backup.task_events).toEqual([event])
   })
+
+  it('inclui anotações (extensão "Anotações", docs/prompt-anotacoes.md seção 7)', () => {
+    const note = sampleNote()
+    const backup = buildBackup({ tasks: [], taskEvents: [], people: [], notes: [note] }, NOW)
+    expect(backup.notes).toEqual([note])
+  })
 })
 
 describe('parseBackup', () => {
   it('aceita um backup valido', () => {
     const { task, event } = sampleTask()
-    const backup = buildBackup({ tasks: [task], taskEvents: [event], people: [] }, NOW)
+    const backup = buildBackup({ tasks: [task], taskEvents: [event], people: [], notes: [] }, NOW)
 
     const result = parseBackup(JSON.stringify(backup))
     expect(result.ok).toBe(true)
@@ -55,7 +66,7 @@ describe('parseBackup', () => {
 
   it('recusa schemaVersion maior que a atual, para nao corromper dados', () => {
     const { task, event } = sampleTask()
-    const backup = buildBackup({ tasks: [task], taskEvents: [event], people: [] }, NOW)
+    const backup = buildBackup({ tasks: [task], taskEvents: [event], people: [], notes: [] }, NOW)
     const futureBackup = { ...backup, schemaVersion: CURRENT_SCHEMA_VERSION + 1 }
 
     const result = parseBackup(JSON.stringify(futureBackup))
@@ -66,8 +77,26 @@ describe('parseBackup', () => {
   })
 
   it('aceita backup vazio (banco zerado)', () => {
-    const backup = buildBackup({ tasks: [], taskEvents: [], people: [] }, NOW)
+    const backup = buildBackup({ tasks: [], taskEvents: [], people: [], notes: [] }, NOW)
     const result = parseBackup(JSON.stringify(backup))
     expect(result.ok).toBe(true)
+  })
+
+  it('aceita um backup de ANTES da extensão "Anotações", sem a chave notes - normaliza para []', () => {
+    const { task, event } = sampleTask()
+    const legacyBackup = {
+      schemaVersion: 1,
+      exportedAt: NOW,
+      tasks: [task],
+      task_events: [event],
+      people: [],
+    }
+
+    const result = parseBackup(JSON.stringify(legacyBackup))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.backup.notes).toEqual([])
+      expect(result.backup.tasks).toHaveLength(1)
+    }
   })
 })

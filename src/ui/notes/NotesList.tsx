@@ -1,4 +1,4 @@
-import { ArrowUpDown, NotebookPen, X } from 'lucide-react'
+import { ArrowUpDown, Download, NotebookPen, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNotes, useNoteTags } from '@/db/noteHooks.ts'
 import { groupNotesByDay } from '@/domain/noteGrouping.ts'
@@ -9,10 +9,28 @@ import {
   type NoteFilters,
   type NotePeriodFilter,
 } from '@/domain/noteSearch.ts'
+import { buildNotesMarkdown } from '@/domain/notesMarkdown.ts'
+import type { Note } from '@/domain/schema.ts'
 import { useToday } from '@/ui/hooks/useNowTick.ts'
 import { navigate } from '@/ui/router/store.ts'
 import { cn } from '@/lib/utils.ts'
 import { NoteListRow } from './NoteListRow.tsx'
+
+/** "Exportar anotações em Markdown" (docs/prompt-anotacoes.md seção 7). */
+function downloadNotesMarkdown(notes: readonly Note[]): void {
+  const markdown = buildNotesMarkdown(notes)
+  const blob = new Blob([markdown], { type: 'text/markdown' })
+  const url = URL.createObjectURL(blob)
+  try {
+    const date = new Date().toISOString().slice(0, 10)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `anotacoes-${date}.md`
+    link.click()
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
 
 const PAGE_SIZE = 50
 
@@ -73,6 +91,17 @@ export function NotesList({ selectedId }: NotesListProps) {
             className="inline-flex size-7 items-center justify-center rounded text-text-subtle hover:bg-surface-muted hover:text-text"
           >
             <ArrowUpDown className="size-4" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              downloadNotesMarkdown(allNotes)
+            }}
+            aria-label="Exportar anotações em Markdown"
+            title="Exportar anotações em Markdown"
+            className="inline-flex size-7 items-center justify-center rounded text-text-subtle hover:bg-surface-muted hover:text-text"
+          >
+            <Download className="size-4" aria-hidden="true" />
           </button>
           <button
             type="button"

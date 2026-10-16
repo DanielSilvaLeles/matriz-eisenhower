@@ -20,6 +20,14 @@ function handleSyncNow(): void {
  * Indicador sempre visivel no cabecalho (docs secao 6.3): os cinco estados
  * (sincronizado, sincronizando, pendencias, offline, erro) e o botao
  * "Sincronizar agora" (atalho `S`, ver useGlobalShortcuts.ts).
+ *
+ * **`label` (o que aparece na barra) vs `detail` (o que aparece no
+ * `title`, ao passar o mouse/segurar o dedo):** "Confirmado" é o único
+ * estado com um resumo longo ("X enviadas, Y recebidas..."); mostrar esse
+ * resumo inteiro na barra forçava o cabeçalho a quebrar linha nos
+ * celulares comuns (feedback real do usuário: preferia a barra permanecer
+ * numa linha só, com menos informação visível, a quebrar). O resumo
+ * completo não desaparece - só sai da barra e vai para o `title`.
  */
 export function SyncIndicator() {
   const status = useSyncStatus()
@@ -32,21 +40,27 @@ export function SyncIndicator() {
 
   let icon = <RefreshCw className="size-3.5" aria-hidden="true" />
   let label = 'Sincronização não configurada'
+  let detail = label
 
   if (status.kind === 'syncing') {
     icon = <RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />
     label = 'Sincronizando…'
+    detail = label
   } else if (status.kind === 'confirmed') {
     icon = <Check className="size-3.5 text-q1-ink" aria-hidden="true" />
-    label = `Sincronizado às ${formatTime(status.at)} — ${status.summary}`
+    label = `Sincronizado às ${formatTime(status.at)}`
+    detail = `${label} — ${status.summary}`
   } else if (status.kind === 'offline') {
     icon = <CloudOff className="size-3.5" aria-hidden="true" />
     label = 'Offline'
+    detail = label
   } else if (status.kind === 'error') {
     icon = <AlertCircle className="size-3.5 text-q4-ink" aria-hidden="true" />
     label = `Erro: ${SYNC_ERROR_MESSAGES[status.reason]}`
+    detail = label
   } else if (status.kind === 'idle' && pendingLabel !== null) {
     label = pendingLabel
+    detail = label
   }
 
   return (
@@ -57,7 +71,7 @@ export function SyncIndicator() {
       )}
     >
       {icon}
-      <span className="max-w-56 truncate sm:max-w-none" title={label}>
+      <span className="max-w-28 truncate sm:max-w-none" title={detail}>
         {label}
       </span>
       {pendingLabel !== null && status.kind !== 'syncing' ? (

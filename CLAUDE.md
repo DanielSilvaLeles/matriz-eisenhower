@@ -918,27 +918,45 @@ exatamente o "zoom errado, cortando a página à direita" que a foto
 mostrava. Não existia nenhuma rede de segurança (`overflow-x: hidden`) em
 `html`/`body` contendo esse tipo de vazamento.
 
-**Correção, em duas partes:**
+**Correção original, em duas partes:**
 1. `AppHeaderActions.tsx`: `shrink-0` → `min-w-0` + `flex-wrap` +
    `justify-end`. `min-w-0` é o que importa de verdade - sem ele, mesmo
    com `flex-wrap`, a `div` (sozinha na própria linha depois do cabeçalho
    quebrar) continuava do tamanho do seu conteúdo em vez de encolher até a
    largura real disponível; sem a CAIXA encolher, o `flex-wrap` de dentro
-   nunca tinha motivo pra quebrar os filhos. Agora, nos celulares
-   estreitos, os botões de ícone quebram pra uma segunda linha (sempre
-   visíveis, nunca cortados) em vez de telas largas, onde tudo continua
-   numa linha só como antes.
+   nunca tinha motivo pra quebrar os filhos. Nos celulares estreitos, os
+   botões de ícone quebravam pra uma segunda linha (sempre visíveis, nunca
+   cortados) em vez de telas largas, onde tudo continuava numa linha só.
 2. `src/styles/index.css`: `overflow-x: hidden` em `html` e `body` - não
    concerta um estouro em si, é a rede de segurança para que UM elemento
    que passe da largura (mesmo um futuro, mesmo atrás de um diálogo) nunca
-   mais alargue o viewport de layout inteiro de novo.
+   mais alargue o viewport de layout inteiro de novo. **Essa parte ficou,
+   não foi revertida** - continua valendo mesmo depois do ajuste abaixo.
+
+**Revisão pedida pelo usuário, feedback depois de ver a correção no ar:**
+achou a quebra de linha feia e preferiu **menos informação na barra a uma
+barra de duas linhas** - "diminuir a informação da sincronização" em vez
+de quebrar. `flex-wrap`/`justify-end`/`min-w-0` saíram de
+`AppHeaderActions.tsx` (voltou a ser só `flex items-center gap-1.5`); quem
+resolve o estouro agora é `SyncIndicator.tsx`: o rótulo que aparece na
+barra (`label`) ficou bem mais curto - "Sincronizado às 20:46" em vez de
+"Sincronizado às 20:46 — 3 enviadas, 2 recebidas de outro aparelho.
+Confirmado." - e o `max-w` do texto caiu de `max-w-56` (224px) pra
+`max-w-28` (112px) nos celulares. **A informação não sumiu**: o texto
+completo continua no `title` (`detail`, uma variável separada de `label`)
+- aparece ao segurar o dedo ou passar o mouse, do jeito que já funcionava
+antes pra qualquer texto truncado no app. Verificado que mesmo o pior caso
+(a mensagem de erro mais longa, "Resposta inesperada (provável bloqueio
+da rede ou página de login do Google).") cabe numa linha só até 320px.
 
 **Teste de regressão** em `e2e/responsive.spec.ts` (viewport 320px, o
-menor que o app testa): confirma os quatro botões do cabeçalho visíveis
-(`toBeVisible`, não só presentes no DOM) e `scrollWidth <= clientWidth`
-tanto na tela principal quanto com o painel de detalhe aberto - confirmado
-que os dois testes **falham** (64px e 90px de estouro) sem a correção e
-passam com ela.
+menor que o app testa): confirma os quatro botões do cabeçalho visíveis E
+**na mesma linha** (compara a coordenada `y` de cada um - uma quebra real
+os separaria por ~36px, bem acima da tolerância de 10px do teste) e
+`scrollWidth <= clientWidth` tanto na tela principal quanto com o painel
+de detalhe aberto. Confirmado, nas duas rodadas (a correção original com
+`flex-wrap` e esta revisão sem ele), que o teste falha sem a correção
+correspondente e passa com ela.
 
 ### Bug real em produção: texto do painel de detalhe se perdia sem o `onBlur` disparar
 

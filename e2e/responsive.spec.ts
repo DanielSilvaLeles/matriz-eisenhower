@@ -13,19 +13,46 @@ import { expect, test } from './fixtures.ts'
  * o usuário viu os dois sintomas e corretamente suspeitou que eram "o
  * mesmo problema" (ver CLAUDE.md).
  *
- * Corrigido com `flex-wrap`/`min-w-0` em `AppHeaderActions.tsx` (o estouro
- * em si) mais `overflow-x: hidden` em `html`/`body` (rede de segurança
- * contra qualquer estouro futuro se espalhar pela página inteira).
+ * **Primeira correção usou `flex-wrap`** (o indicador caindo pra uma
+ * segunda linha com os botões) - funcionava sem estourar, mas o usuário
+ * achou a quebra de linha feia e preferiu menos informação na barra a uma
+ * barra de duas linhas. Revertido: `SyncIndicator.tsx` agora mostra um
+ * rótulo bem mais curto nos celulares (o texto completo continua no
+ * `title`) - curto o bastante pra nunca mais precisar quebrar linha.
+ * `overflow-x: hidden` em `html`/`body` continua como rede de segurança.
  */
 test.use({ viewport: { width: 320, height: 760 } })
 
-test('nos 320px, os quatro botoes do cabecalho cabem sem estourar a pagina', async ({ page }) => {
-  await expect(page.getByRole('button', { name: 'Histórico' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Configurações' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Sincronizar agora' })).toBeVisible()
+test('nos 320px, os quatro botoes do cabecalho cabem numa linha so, sem estourar a pagina', async ({
+  page,
+}) => {
+  const sync = page.getByRole('button', { name: 'Sincronizar agora' })
+  const historico = page.getByRole('button', { name: 'Histórico' })
+  const config = page.getByRole('button', { name: 'Configurações' })
   // ThemeToggle: rotulo dinamico ("Tema claro/escuro/do sistema") - padrao
   // de um contexto novo do Playwright (sem localStorage) e "do sistema".
-  await expect(page.getByRole('button', { name: 'Tema do sistema' })).toBeVisible()
+  const tema = page.getByRole('button', { name: 'Tema do sistema' })
+
+  await expect(sync).toBeVisible()
+  await expect(historico).toBeVisible()
+  await expect(config).toBeVisible()
+  await expect(tema).toBeVisible()
+
+  // Os quatro ficam na MESMA linha (preferencia explicita do usuario a
+  // quebrar linha) - o topo de cada um tem que estar bem proximo do topo
+  // dos outros, nao numa linha abaixo.
+  const tops = await Promise.all(
+    [sync, historico, config, tema].map(async (locator) => (await locator.boundingBox())?.y),
+  )
+  // Tolerancia pequena pro desalinhamento natural entre o botao de icone
+  // de 36px (Historico/Config/Tema) e o botao interno de "sincronizar
+  // agora" (24px, centralizado dentro do indicador mais alto) - bem menor
+  // que a altura de uma linha inteira (~36px), que e o que uma quebra real
+  // produziria.
+  const [first, ...rest] = tops
+  for (const top of rest) {
+    expect(Math.abs((top ?? 0) - (first ?? 0))).toBeLessThan(10)
+  }
 
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

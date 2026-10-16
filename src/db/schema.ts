@@ -8,12 +8,13 @@
  * publicada - sempre acrescentar a proxima.
  */
 import DexieDB, { type EntityTable, type Table } from 'dexie'
-import type { Meta, Person, Task, TaskEvent } from '@/domain/schema.ts'
+import type { Meta, Note, Person, Task, TaskEvent } from '@/domain/schema.ts'
 
 export class MatrizDB extends DexieDB {
   tasks!: EntityTable<Task, 'id'>
   task_events!: EntityTable<TaskEvent, 'id'>
   people!: EntityTable<Person, 'id'>
+  notes!: EntityTable<Note, 'id'>
   /**
    * Linha unica, chave fora da tabela (Dexie out-of-line key: o indice `''`
    * nao reserva um campo `id` dentro do objeto, `Meta` nao tem essa
@@ -39,6 +40,39 @@ export class MatrizDB extends DexieDB {
       people: 'id, name',
       meta: '',
     })
+
+    // v2: extensão "Anotações" (`docs/prompt-anotacoes.md` seção 6.1) -
+    // tabela `notes` nova e `tasks.source_note_id`. `.upgrade()` preenche
+    // esse campo como `null` em toda tarefa já gravada - sem isso, uma
+    // tarefa criada antes desta versão ficaria com o campo AUSENTE (não só
+    // `null`), e `taskSchema` (Zod, obrigatório mesmo que nullable) rejeita
+    // a leitura na primeira vez que o objeto passar por validação (backup,
+    // sync). Teste de migração com fixture no formato v1 exato, provando
+    // que tarefas/pessoas/histórico sobrevivem intactos:
+    // `src/db/migration.test.ts`.
+    //
+    // `notes` indexada por `deleted` (lixeira de 30 dias, seção 5) e por
+    // `created_at`/`updated_at` (ordenação padrão e "editada depois" da
+    // lista, seção 4) - sem índice em `tags` ou no texto: a busca é local e
+    // instantânea sobre o array inteiro em memória (volume esperado:
+    // centenas por ano, não milhares), um índice ali só custaria escrita
+    // sem ganhar nada de leitura.
+    this.version(2)
+      .stores({
+        tasks: 'id, quadrant, status, [quadrant+status], updated_at, deleted',
+        task_events: 'id, task_id, at',
+        people: 'id, name',
+        notes: 'id, deleted, created_at, updated_at',
+        meta: '',
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table('tasks')
+          .toCollection()
+          .modify((task: Task) => {
+            task.source_note_id = null
+          })
+      })
   }
 }
 

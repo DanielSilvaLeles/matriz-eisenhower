@@ -120,6 +120,36 @@ describe('runSync', () => {
     expect(tasks[0]?.title).toBe('Veio de outro aparelho')
   })
 
+  it('revisao com schemaVersion mais nova: recusa sincronizar, fica em erro "schema_outdated"', async () => {
+    // Docs secao 6.1 (regra do SPEC original, nunca tinha teste cobrindo o
+    // motor de sync de verdade - so o import de backup já tinha essa
+    // checagem, ver src/domain/backup.test.ts): um aparelho com app
+    // desatualizado que encontra uma revisao gravada por uma versao mais
+    // nova do schema recusa mesclar, em vez de arriscar descartar um campo
+    // que nao conhece no proximo push.
+    const server = createFakeServer('segredo')
+    vi.stubGlobal('fetch', server.fetchMock)
+    setSyncUrl(server.url)
+    setSyncToken('segredo')
+
+    // Simula outro aparelho ja tendo empurrado dados com uma versao de
+    // schema mais nova do que este cliente entende.
+    await server.fetchMock(server.url, {
+      body: JSON.stringify({
+        token: 'segredo',
+        action: 'push',
+        baseRevision: 0,
+        data: { schemaVersion: CURRENT_SCHEMA_VERSION + 1, tasks: [], task_events: [], people: [] },
+      }),
+    })
+
+    await runSync()
+
+    expect(syncStatusStore.get()).toEqual({ kind: 'error', reason: 'schema_outdated' })
+    // Nao aplicou nada local - nem tentou mesclar um formato que nao conhece.
+    expect(await db.tasks.count()).toBe(0)
+  })
+
   it('recusado por token errado: fica em erro "unauthorized"', async () => {
     const server = createFakeServer('token-certo')
     vi.stubGlobal('fetch', server.fetchMock)

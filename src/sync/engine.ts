@@ -23,7 +23,7 @@ export type SyncStatus =
   | { readonly kind: 'syncing' }
   | { readonly kind: 'confirmed'; readonly at: string; readonly summary: string }
   | { readonly kind: 'offline' }
-  | { readonly kind: 'error'; readonly reason: SyncErrorKind | 'conflict_persisted' }
+  | { readonly kind: 'error'; readonly reason: SyncErrorKind | 'conflict_persisted' | 'schema_outdated' }
 
 export const syncStatusStore = createStore<SyncStatus>({ kind: 'idle' })
 
@@ -132,6 +132,17 @@ async function runSyncInternal(): Promise<void> {
     const pulled = await callSync({ url, token, action: 'pull' })
     if (!pulled.ok) {
       syncStatusStore.set({ kind: 'error', reason: pulled.kind })
+      return
+    }
+
+    // Docs secao 6.1: um aparelho com app antigo que encontra uma revisao
+    // gravada por uma versao mais nova do schema recusa sincronizar - sem
+    // essa checagem, `mergeState` tentaria mesclar um objeto com campos que
+    // esta versao do app nem conhece, arriscando descartar algo em
+    // silencio no proximo push. So pode acontecer depois que ALGUM outro
+    // aparelho ja sincronizou com uma versao mais nova deste app.
+    if (pulled.data.schemaVersion > CURRENT_SCHEMA_VERSION) {
+      syncStatusStore.set({ kind: 'error', reason: 'schema_outdated' })
       return
     }
 

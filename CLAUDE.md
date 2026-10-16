@@ -375,7 +375,13 @@ há nada para empurrar (aplica local e confirma); senão, push com
 dessa releitura**, comparando contra o checksum que o cliente pretendia
 gravar — só então marca "Confirmado" e limpa as pendências. Nunca confia só
 na resposta do próprio push. Conflito (`baseRevision` desatualizado) tenta
-de novo desde o pull, até 3 vezes.
+de novo desde o pull, até 3 vezes. **Antes de gravar o resultado**
+(`applyAndConfirm`), relê o estado local mais uma vez e mescla com o
+resultado do ciclo pela mesma regra de "vence o `updated_at` mais recente"
+— sem isso, uma edição feita enquanto o ciclo inteiro (pull→push→releitura,
+um tempo real de rede) estava em voo era sobrescrita de volta pro valor
+antigo assim que o ciclo terminava (bug real, ver "Bug real em produção
+(segunda rodada)" abaixo).
 
 **`src/db/changeSignal.ts` existe só para preservar a dependência num
 sentido só:** `src/db` não pode importar nada de `src/sync` (o banco não
@@ -493,6 +499,52 @@ gate controlado pelo teste, cria uma segunda tarefa enquanto o push está
 preso, solta o gate, e confirma que as duas tarefas sobrevivem e que a
 tarefa concorrente continua marcada pendente (não foi sincronizada por
 este ciclo — vai no próximo).
+
+### Bug real em produção (segunda rodada): mover uma tarefa durante o sync desfazia o movimento
+
+**Relatado pelo usuário, depois da correção acima já estar no ar**: "quando
+movimento um item de um quadrante para outro ou para a caixa de entrada
+durante a sincronização, ele não salva essa movimentação e o item volta
+para o quadrante anterior." Mesma família de bug do anterior (escrita local
+durante um ciclo de sync em voo), mas uma variante que o `bulkPut` **não**
+cobria.
+
+**Causa raiz:** o `bulkPut` de `applyMergedState` só protege uma tarefa que
+está **ausente** de `merged` (o bug anterior - tarefa nova, nunca lida pelo
+snapshot). Mover uma tarefa **já existente** é diferente: o id dela já
+estava no snapshot e continua presente em `merged` - só que com o
+quadrante **antigo**, porque `merged` foi calculado a partir do estado de
+`readLocalState` no início do ciclo, antes do movimento acontecer.
+`bulkPut(merged.tasks)` grava por cima **todo** id presente em `merged`,
+inclusive esse - desfazendo o movimento silenciosamente assim que o ciclo
+terminava, mesmo com a correção anterior já aplicada.
+
+**Correção:** `applyAndConfirm` (nova função em `engine.ts`, chamada pelos
+dois pontos de saída bem-sucedida do ciclo - "nada para empurrar" e
+"push+verificação OK") relê o estado local de novo **bem perto da
+escrita**, bem depois do push/verificação já terem acontecido, e mescla
+esse estado fresco com `merged` usando a MESMA `mergeState` (vence o
+`updated_at` mais recente) já usada para toda mesclagem local-vs-remoto no
+app - o movimento em voo, por ter o `updated_at` mais novo, sempre vence.
+A pendência dessa tarefa específica não é limpa (`taskUnchanged` compara o
+valor final com o que foi efetivamente confirmado com o servidor neste
+ciclo) - continua marcada pendente pro próximo ciclo empurrar de verdade,
+em vez do contador mentir "tudo confirmado".
+
+**Por que o teste do bug anterior não pegou este**: aquele criava uma
+tarefa **nova** (ausente de `merged` por definição) - o `bulkPut` já
+resolvia isso sozinho. Este move uma tarefa **que já estava la antes do
+ciclo começar** - só reconhecido com um teste que sincroniza a tarefa uma
+vez primeiro (pra ela estar "estável", o cenário real do usuário) e só
+depois dispara um segundo ciclo que ela é movida no meio dele. Dois testes
+de regressão diferentes para duas variantes diferentes do mesmo tipo de
+corrida - nenhum teste cobre o outro.
+
+Teste de regressão em `src/sync/engine.raceConditions.test.ts` ("mover uma
+tarefa JA EXISTENTE..."), ao lado do teste da fase anterior (os dois
+arquivos foram separados aqui, `engine.test.ts` +
+`engine.raceConditions.test.ts` + `engine.testHelpers.ts`, só pelo limite
+de 300 linhas do lint ao crescer).
 
 ### Mudança pedida pelo usuário: titulo da tarefa abre detalhe, so o checkbox conclui
 

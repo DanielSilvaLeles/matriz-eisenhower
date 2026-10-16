@@ -5,9 +5,9 @@
  * botao/atalho "Sincronizar agora" - ver src/sync/triggers.ts) atraves de
  * `runSync()`, que de-duplica chamadas concorrentes.
  */
-import { applyMergedState, readLocalState } from '@/db/syncRepo.ts'
+import { applyMergedState, readLocalState, type LocalSyncSnapshot } from '@/db/syncRepo.ts'
 import { clearPending } from '@/db/metaRepo.ts'
-import { getDB } from '@/db/schema.ts'
+import { getDB, type MatrizDB } from '@/db/schema.ts'
 import { computeChecksum } from '@/domain/checksum.ts'
 import { mergeState, type SyncableState } from '@/domain/merge.ts'
 import { CURRENT_SCHEMA_VERSION } from '@/domain/schema.ts'
@@ -44,6 +44,52 @@ function countChanged(before: SyncableState['tasks'], after: SyncableState['task
 
 function pluralize(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`
+}
+
+/** A tarefa com esse id tem o MESMO valor nos dois estados (comparacao profunda via JSON). */
+function taskUnchanged(a: SyncableState, b: SyncableState, taskId: string): boolean {
+  const ta = a.tasks.find((task) => task.id === taskId)
+  const tb = b.tasks.find((task) => task.id === taskId)
+  return JSON.stringify(ta) === JSON.stringify(tb)
+}
+
+/**
+ * Grava o resultado do ciclo e confirma a pendencia - o unico lugar que
+ * faz isso, chamado pelos dois pontos de saida bem-sucedida do ciclo
+ * (nada para empurrar, e push+verificacao OK).
+ *
+ * **Bug real relatado em produção:** mover uma tarefa (ou qualquer outra
+ * edicao) ENQUANTO um ciclo de sync estava em voo desfazia o movimento -
+ * `merged` foi calculado a partir do snapshot de `readLocalState` tirado
+ * no INÍCIO do ciclo; se a pessoa movesse uma tarefa já existente nesse
+ * meio-tempo, essa tarefa (com id presente tanto no snapshot quanto em
+ * `merged`, só que com o quadrante antigo) tinha seu valor sobrescrito de
+ * volta pelo `bulkPut` de `applyMergedState` - diferente do bug de tarefa
+ * NOVA já corrigido antes (que `bulkPut` já protege, por nunca tocar um id
+ * ausente de `merged`), aqui o id JÁ estava em `merged`, só que desatualizado.
+ *
+ * Corrigido relendo o estado local de novo bem antes de gravar
+ * (`readLocalState` mais uma vez, o mais perto possível da escrita) e
+ * mesclando esse estado FRESCO com `merged` usando a MESMA regra de
+ * "vence o `updated_at` mais recente" (`mergeState`) já usada em todo o
+ * resto do app - a edição em voo, por ter acontecido por último, sempre
+ * vence. O id dessa tarefa fica de fora de `confirmedIds` (ver
+ * `taskUnchanged`), então a pendência dela não é limpa por engano -
+ * continua marcada para o PRÓXIMO ciclo empurrar de verdade.
+ */
+async function applyAndConfirm(
+  db: MatrizDB,
+  local: LocalSyncSnapshot,
+  merged: SyncableState,
+  revision: number,
+  checksum: string,
+): Promise<void> {
+  const latestLocal = await readLocalState(db)
+  const now = new Date().toISOString()
+  const finalState = mergeState(latestLocal, merged, now)
+  await applyMergedState(db, finalState)
+  const confirmedIds = local.pendingIds.filter((id) => taskUnchanged(finalState, merged, id))
+  await clearPending(db, revision, checksum, confirmedIds)
 }
 
 function buildSummary(remoteBefore: SyncableState, local: SyncableState, merged: SyncableState): string {
@@ -99,8 +145,7 @@ async function runSyncInternal(): Promise<void> {
       // A mesclagem nao gerou diferenca em relacao ao servidor - nada para
       // empurrar (docs secao 6.1, passo 3). Ainda assim aplica local (pode
       // ter trazido mudanca de outro aparelho) e confirma.
-      await applyMergedState(db, merged)
-      await clearPending(db, pulled.revision, pulled.checksum, local.pendingIds)
+      await applyAndConfirm(db, local, merged, pulled.revision, pulled.checksum)
       syncStatusStore.set({
         kind: 'confirmed',
         at: now,
@@ -143,8 +188,7 @@ async function runSyncInternal(): Promise<void> {
       return
     }
 
-    await applyMergedState(db, merged)
-    await clearPending(db, pushed.revision, pushed.checksum, local.pendingIds)
+    await applyAndConfirm(db, local, merged, pushed.revision, pushed.checksum)
     syncStatusStore.set({
       kind: 'confirmed',
       at: now,

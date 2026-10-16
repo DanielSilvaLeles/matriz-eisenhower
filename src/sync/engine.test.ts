@@ -1,96 +1,18 @@
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getMeta } from '@/db/metaRepo.ts'
-import { computeChecksum } from '@/domain/checksum.ts'
 import { MatrizDB } from '@/db/schema.ts'
 import { addTaskToQuadrant } from '@/db/tasksRepo.ts'
 import { CURRENT_SCHEMA_VERSION } from '@/domain/schema.ts'
-import { syncRequestSchema, type SyncData, type SyncRequest, type SyncResponse } from '@/domain/syncProtocol.ts'
+import { createFakeLocalStorage, createFakeServer } from './engine.testHelpers.ts'
 import { getSyncToken, getSyncUrl, setSyncToken, setSyncUrl } from './config.ts'
 import { runSync, syncStatusStore } from './engine.ts'
 
-function noop(): void {}
-
-function emptySyncData(): SyncData {
-  return { schemaVersion: CURRENT_SCHEMA_VERSION, tasks: [], task_events: [], people: [] }
-}
-
 /**
- * Reusa o `computeChecksum` DE VERDADE (nao uma reimplementacao paralela):
- * um servidor de mentira que calcula o checksum com uma logica levemente
- * diferente da real nunca bateria com o que o motor espera, mesmo para o
- * mesmo conteudo - e foi exatamente isso que aconteceu na primeira versao
- * deste teste (o helper daqui nao ordenava as chaves do nivel raiz, so as
- * de dentro de cada tarefa).
+ * Cenarios de corrida entre uma escrita local e um ciclo de sync em voo
+ * ficam em `engine.raceConditions.test.ts` - separado so pelo limite de
+ * linhas do lint, mesma configuracao de teste.
  */
-function canonicalChecksum(d: SyncData): Promise<string> {
-  return computeChecksum({ tasks: d.tasks, taskEvents: d.task_events, people: d.people })
-}
-
-/**
- * Servidor Apps Script simulado, em memoria: implementa pull/push/ping com
- * as mesmas regras de `apps-script/Code.gs` (conferir baseRevision, gerar
- * checksum da mesma forma), interceptando `global.fetch`. Nao reusa
- * `apps-script/test/harness.mjs` porque aquele carrega o `.gs` via `vm`
- * simulando os globais do Apps Script - aqui o alvo e o `callSync` do
- * front, entao o suficiente e simular as RESPOSTAS HTTP.
- */
-function createFakeServer(token: string) {
-  let revision = 0
-  let data: SyncData = emptySyncData()
-
-  async function handle(body: SyncRequest): Promise<SyncResponse> {
-    if (body.token !== token) return { ok: false, error: 'unauthorized' }
-
-    if (body.action === 'ping' || body.action === 'pull') {
-      return { ok: true, revision, checksum: await canonicalChecksum(data), data }
-    }
-
-    if (body.data === undefined || body.baseRevision !== revision) {
-      return { ok: false, error: body.data === undefined ? 'invalid' : 'conflict' }
-    }
-    data = body.data
-    revision += 1
-    return { ok: true, revision, checksum: await canonicalChecksum(data), data }
-  }
-
-  return {
-    url: 'https://script.google.com/macros/s/fake/exec',
-    fetchMock: vi.fn(async (_url: string, init: { body: string }) => {
-      const body = syncRequestSchema.parse(JSON.parse(init.body))
-      const result = await handle(body)
-      return new Response(JSON.stringify(result), { status: 200 })
-    }),
-    revisionNow: () => revision,
-  }
-}
-
-/**
- * `localStorage` no Node (ambiente dos testes) exige `--localstorage-file`
- * para funcionar de verdade - sem isso, toda leitura/escrita falha e
- * `src/sync/config.ts` (de proposito) engole o erro, tratando como "sem
- * armazenamento". Sem simular aqui, setSyncUrl/setSyncToken virariam no-op
- * silencioso e o teste nunca saberia a diferenca.
- */
-function createFakeLocalStorage(): Storage {
-  const store = new Map<string, string>()
-  return {
-    getItem: (key: string) => store.get(key) ?? null,
-    setItem: (key: string, value: string) => {
-      store.set(key, value)
-    },
-    removeItem: (key: string) => {
-      store.delete(key)
-    },
-    clear: () => {
-      store.clear()
-    },
-    key: (index: number) => [...store.keys()][index] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 
 let db: MatrizDB
 
@@ -219,59 +141,6 @@ describe('runSync', () => {
 
     expect(syncStatusStore.get()).toEqual({ kind: 'offline' })
     expect(fetchMock).not.toHaveBeenCalled()
-  })
-
-  it('tarefa criada DURANTE o ciclo (depois do snapshot local, no meio do push) nao e perdida', async () => {
-    // Regressao do bug real relatado em produção: `applyMergedState` usava
-    // `clear()+bulkAdd()` a partir de um snapshot tirado no inicio do ciclo
-    // (`readLocalState`). Uma escrita local que acontecesse DEPOIS desse
-    // snapshot mas ANTES do ciclo terminar (pull -> push -> verificacao, um
-    // tempo real de rede) sobrevivia no Dexie até o ciclo voltar e apagar a
-    // tabela inteira para regravar so o que estava no snapshot antigo -
-    // perdendo a tarefa nova sem aviso nenhum. Corrigido com `bulkPut`.
-    const server = createFakeServer('segredo')
-    let releasePush: () => void = noop
-    const pushGate = new Promise<void>((resolve) => {
-      releasePush = resolve
-    })
-    const fetchMock = vi.fn(async (url: string, init: { body: string }) => {
-      const body = syncRequestSchema.parse(JSON.parse(init.body))
-      if (body.action === 'push') await pushGate
-      return server.fetchMock(url, init)
-    })
-    vi.stubGlobal('fetch', fetchMock)
-    setSyncUrl(server.url)
-    setSyncToken('segredo')
-
-    await addTaskToQuadrant(db, 'q1', 'Tarefa original')
-
-    const syncPromise = runSync()
-
-    // Espera o ciclo chegar ao push (ou seja: ja leu o snapshot local em
-    // `readLocalState`, antes da escrita concorrente abaixo).
-    await vi.waitFor(() => {
-      expect(fetchMock.mock.calls.some((call) => {
-        const parsed = syncRequestSchema.parse(JSON.parse(call[1].body))
-        return parsed.action === 'push'
-      })).toBe(true)
-    })
-
-    // Escrita local DEPOIS do snapshot que o ciclo em voo ja leu - a mesma
-    // corrida relatada em produção.
-    await addTaskToQuadrant(db, 'q2', 'Tarefa criada durante o ciclo')
-
-    releasePush()
-    await syncPromise
-
-    const titles = (await db.tasks.toArray()).map((task) => task.title)
-    expect(titles).toContain('Tarefa original')
-    expect(titles).toContain('Tarefa criada durante o ciclo')
-
-    // A tarefa concorrente nao foi sincronizada por este ciclo (nao estava
-    // no snapshot) - continua pendente para o proximo ciclo pegar, em vez
-    // de o contador mentir que ja esta tudo confirmado.
-    const meta = await getMeta(db)
-    expect(meta.pending_ids).toHaveLength(1)
   })
 
   it('duas chamadas simultaneas de runSync fazem so um ciclo', async () => {

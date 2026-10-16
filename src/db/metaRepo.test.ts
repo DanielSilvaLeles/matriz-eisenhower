@@ -19,7 +19,7 @@ describe('getMeta', () => {
     expect(meta.pending_ids).toEqual([])
     expect(meta.last_confirmed_revision).toBeNull()
     expect(meta.last_confirmed_checksum).toBeNull()
-    expect(meta.schema_version).toBe(1)
+    expect(meta.schema_version).toBe(2)
   })
 })
 

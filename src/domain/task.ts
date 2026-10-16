@@ -32,6 +32,12 @@ export interface NewTaskInput {
   readonly source?: TaskSource
   readonly context?: TaskContext
   readonly tags?: readonly string[]
+  /**
+   * Extensão "Anotações" (`docs/prompt-anotacoes.md` seção 5.1): preenchido
+   * quando a tarefa nasce do envio de uma linha de ação `[ ]`/`- [ ]` de
+   * dentro de uma anotação. `null` em toda criação normal.
+   */
+  readonly sourceNoteId?: string | null
 }
 
 /** Cria uma tarefa nova e o evento `created` correspondente. */
@@ -60,6 +66,7 @@ export function createTask(input: NewTaskInput, now: string): TaskMutationResult
     completed_at: null,
     deleted: false,
     device: input.device,
+    source_note_id: input.sourceNoteId ?? null,
   }
 
   const event: TaskEvent = {

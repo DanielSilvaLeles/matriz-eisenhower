@@ -26,6 +26,7 @@ function task(overrides: Partial<Task> = {}): Task {
     completed_at: null,
     deleted: false,
     device: 'pc empresa',
+    source_note_id: null,
     ...overrides,
   }
 }

@@ -104,6 +104,7 @@ describe('runSync', () => {
               completed_at: null,
               deleted: false,
               device: 'celular',
+              source_note_id: null,
             },
           ],
           task_events: [],

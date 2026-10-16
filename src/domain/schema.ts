@@ -24,7 +24,7 @@ export const QUADRANT_IDS = ['q1', 'q2', 'q3', 'q4'] as const
 export const TASK_STATUSES = ['open', 'done', 'archived'] as const
 export type TaskStatus = (typeof TASK_STATUSES)[number]
 
-export const TASK_SOURCES = ['web', 'pwa', 'share'] as const
+export const TASK_SOURCES = ['web', 'pwa', 'share', 'note'] as const
 export type TaskSource = (typeof TASK_SOURCES)[number]
 
 export const TASK_CONTEXTS = ['work', 'personal'] as const
@@ -69,6 +69,13 @@ export const taskSchema = z.object({
   completed_at: timestamp.nullable(),
   deleted: z.boolean(),
   device: deviceName,
+  /**
+   * Preenchido quando a tarefa nasceu de uma linha de ação `[ ]`/`- [ ]`
+   * enviada de uma anotação (extensão "Anotações", seção 5.1 do prompt
+   * correspondente) - aponta para `notes.id`. `null` para toda tarefa
+   * criada do jeito normal (captura, "Adicionar tarefa").
+   */
+  source_note_id: uuid.nullable(),
 })
 export type Task = z.infer<typeof taskSchema>
 
@@ -91,6 +98,30 @@ export const personSchema = z.object({
 export type Person = z.infer<typeof personSchema>
 
 /**
+ * Anotação (extensão "Anotações + menu inferior", `docs/prompt-anotacoes.md`
+ * seção 6.1): texto livre de uma reunião/conversa, diferente de uma "ideia"
+ * da caixa de entrada - `title` é opcional (a primeira linha serve de
+ * título quando ausente, calculado na UI, não gravado em dobro aqui).
+ * `created_at` nunca muda depois de criada (seção 5: "data de inclusão").
+ * `deleted`/`deleted_at` dão a lixeira de 30 dias (mesmo espírito do
+ * tombstone de tarefa, mas com o próprio carimbo de quando foi apagada,
+ * para a mesclagem de conflito da fase 2 poder comparar "editada depois de
+ * apagada" com precisão).
+ */
+export const noteSchema = z.object({
+  id: uuid,
+  title: z.string().trim().min(1).max(200).nullable(),
+  body: z.string().max(50_000),
+  tags: z.array(z.string().trim().min(1).max(60)),
+  created_at: timestamp,
+  updated_at: timestamp,
+  deleted: z.boolean(),
+  deleted_at: timestamp.nullable(),
+  device: deviceName,
+})
+export type Note = z.infer<typeof noteSchema>
+
+/**
  * So local, nunca sincronizado (docs secao 10). `pending_ids`,
  * `last_confirmed_revision` e `last_confirmed_checksum` entram em uso na
  * fase 2; aqui o schema ja reserva o formato para a migracao do Dexie nao
@@ -105,5 +136,11 @@ export const metaSchema = z.object({
 })
 export type Meta = z.infer<typeof metaSchema>
 
-/** Versao atual do schema. Sobe quando o formato de `tasks`/`matriz.json` muda. */
-export const CURRENT_SCHEMA_VERSION = 1
+/**
+ * Versao atual do schema. Sobe quando o formato de `tasks`/`matriz.json`
+ * muda. v2: acrescenta `notes` e `tasks.source_note_id`
+ * (`docs/prompt-anotacoes.md` seção 6.1) - ver `src/db/schema.ts` para a
+ * migração do Dexie e `src/db/migration.test.ts` para o teste com fixture
+ * no formato v1.
+ */
+export const CURRENT_SCHEMA_VERSION = 2

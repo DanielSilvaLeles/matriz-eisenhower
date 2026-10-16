@@ -29,6 +29,7 @@ const FIXTURE: ChecksumContents = {
       completed_at: null,
       deleted: false,
       device: 'pc empresa',
+      source_note_id: null,
     },
   ],
   taskEvents: [
@@ -45,7 +46,14 @@ const FIXTURE: ChecksumContents = {
   people: [],
 }
 
-const FIXTURE_HASH = '29692066177becb80f666db63abb87371be59089fc1c23878ba8a50ee86b1d1c'
+/**
+ * Mudou junto com a extensão "Anotações" (`tasks.source_note_id` novo no
+ * schema) - recalculado e verificado de duas formas independentes:
+ * `computeChecksum` real (este teste) e `shasum -a 256` na linha de
+ * comando sobre o mesmo JSON canônico, antes de atualizar
+ * `apps-script/Code.gs::testChecksum()` para o mesmo valor.
+ */
+const FIXTURE_HASH = '8aca9634cc91eaf1efa2c9719e16d962f75eae3df0827e836a1c3209ba75c037'
 
 describe('canonicalJSON', () => {
   it('ordena as chaves de cada objeto alfabeticamente', () => {

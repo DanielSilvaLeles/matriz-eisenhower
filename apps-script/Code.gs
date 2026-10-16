@@ -311,7 +311,7 @@ function rotateBackups_(folder) {
 
 const QUADRANT_IDS = ['q1', 'q2', 'q3', 'q4']
 const TASK_STATUSES = ['open', 'done', 'archived']
-const TASK_SOURCES = ['web', 'pwa', 'share']
+const TASK_SOURCES = ['web', 'pwa', 'share', 'note']
 const TASK_CONTEXTS = ['work', 'personal']
 const TASK_EVENT_TYPES = ['created', 'moved', 'completed', 'reopened', 'archived']
 
@@ -353,7 +353,15 @@ function isValidTask_(task) {
     isNonEmptyString_(task.updated_at) &&
     typeof task.deleted === 'boolean' &&
     isNonEmptyString_(task.device) &&
-    Array.isArray(task.tags)
+    Array.isArray(task.tags) &&
+    // Extensão "Anotações": aponta para notes.id quando a tarefa nasceu do
+    // envio de uma linha de ação de dentro de uma anotação - null no resto.
+    // `undefined` também é aceito (não só `null`): uma tarefa gravada por um
+    // front mais antigo, de antes deste campo existir, nunca vai mandar essa
+    // chave - compatibilidade na direção contrária da seção 1.6 do prompt
+    // (lá é "front novo + script antigo"; aqui, pela mesma cautela, também
+    // "script novo + payload antigo" não quebra).
+    (task.source_note_id === undefined || isNullOr_(task.source_note_id, isNonEmptyString_))
   )
 }
 
@@ -496,6 +504,7 @@ function testChecksum() {
         completed_at: null,
         deleted: false,
         device: 'pc empresa',
+        source_note_id: null,
       },
     ],
     task_events: [
@@ -512,7 +521,10 @@ function testChecksum() {
     people: [],
   }
 
-  const expected = '29692066177becb80f666db63abb87371be59089fc1c23878ba8a50ee86b1d1c'
+  // Mudou junto com a extensão "Anotações" (tasks.source_note_id novo no
+  // schema) - recalculado e verificado contra computeChecksum real em
+  // src/domain/checksum.test.ts, mesmo fixture.
+  const expected = '8aca9634cc91eaf1efa2c9719e16d962f75eae3df0827e836a1c3209ba75c037'
   const actual = computeChecksum_(fixture)
 
   Logger.log('Hash calculado: ' + actual)

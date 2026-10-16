@@ -10,6 +10,7 @@ const SOURCE_LABEL: Record<TaskSource, string> = {
   web: 'Web',
   pwa: 'App',
   share: 'Compartilhado',
+  note: 'Anotação',
 }
 
 export interface InboxItemRowProps {

@@ -8,6 +8,7 @@
  * publicada - sempre acrescentar a proxima.
  */
 import DexieDB, { type EntityTable, type Table } from 'dexie'
+import { dbName } from '@/appId.ts'
 import type { Meta, Note, Person, Task, TaskEvent } from '@/domain/schema.ts'
 
 export class MatrizDB extends DexieDB {
@@ -78,8 +79,12 @@ export class MatrizDB extends DexieDB {
 
 export const LOCAL_META_KEY = 'local'
 
-/** Nome do banco separado do de teste, para os dois nao colidirem. */
-export const DB_NAME = 'matriz-eisenhower'
+/**
+ * Nome do banco separado do de teste, para os dois nao colidirem - e
+ * prefixado pelo app id em qualquer build que nao seja a de produção
+ * (`src/appId.ts`, docs/prompt-anotacoes.md seção 1.8).
+ */
+export const DB_NAME = dbName()
 
 let instance: MatrizDB | null = null
 

@@ -7,8 +7,9 @@
  * nome razoavel e detectado pelo user agent - "celular" ou "computador" -
  * e guardado so no aparelho.
  */
+import { storageKey } from '@/appId.ts'
 
-const DEVICE_STORAGE_KEY = 'matriz:device'
+const DEVICE_STORAGE_KEY = storageKey('matriz:device')
 
 function detectDefaultDeviceName(): string {
   return /Mobi|Android/iu.test(navigator.userAgent) ? 'celular' : 'computador'

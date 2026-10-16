@@ -219,3 +219,73 @@ não por nenhum teste que já existisse. Teste de regressão acrescentado em
 `apps-script/test/harness.mjs` ("lê um matriz.json antigo..."),
 confirmado que falha sem a correção (reproduz exatamente o
 desaparecimento: 0 tarefas em vez de 1) e passa com ela.
+
+## 10. Build para dois repositórios: convenção "id vazio = produção", nada de `.env`
+
+**Prompt pede (seção 1.8, obrigatório):** workflow calcula `base`/
+`VITE_APP_ID` a partir de `github.event.repository.name`; produção não
+muda nenhum nome existente; qualquer outro nome (convenção "-beta")
+prefixa banco/localStorage/caches e usa manifest próprio; selo "BETA";
+teste automatizado provando que dois ids nunca compartilham chave e que o
+id de produção reproduz os nomes de hoje; `Code.gs` com pasta/arquivo
+configuráveis por `PropertiesService`, valores atuais como padrão.
+
+**Decisões tomadas:**
+
+- **`APP_ID === ''` É a convenção de produção** (`src/appId.ts`), não
+  `'matriz-eisenhower'` nem qualquer outro valor explícito - mais simples
+  de verificar ("nenhum prefixo foi aplicado") e mais seguro por
+  construção: um erro no cálculo do id no workflow (variável vazia por
+  engano) cai no comportamento de PRODUÇÃO (sem prefixo nenhum), nunca no
+  de um id acidental que corromperia nomes de armazenamento.
+- **Funções `*For(appId, ...)` puras e parametrizadas**, com versões sem
+  sufixo amarradas ao `APP_ID` real só como conveniência - é o que permite
+  o teste obrigatório (`appId.test.ts`) exercitar vários ids ao mesmo
+  tempo sem depender de variável de ambiente alguma.
+- **`vite.config.ts` e `playwright.config.ts` lêem `process.env` direto**,
+  nunca importam `src/appId.ts`: esses dois arquivos rodam em Node puro
+  (configuração/CLI), não passam pelo transform do Vite que torna
+  `import.meta.env` válido - a mesma duplicação já existe entre
+  `src/domain/checksum.ts` e `apps-script/Code.gs`, por um motivo análogo
+  (contextos de execução diferentes). `tsconfig.node.json` ganhou
+  `"vite/client"` nos `types` (ao lado de `"node"`) para o Vitest, que
+  roda testes sobre o Vite de verdade, tipar `import.meta.env` sem erro.
+- **`index.html`: dois hrefs hardcoded (`favicon`, `apple-touch-icon`)
+  tinham que trocar para `%BASE_URL%`** - achado testando um build com
+  `base` diferente antes de mexer em qualquer config real: só os assets
+  que o Vite injeta (CSS, manifest) seguem o `base` automaticamente; um
+  `href` literal no HTML-fonte, não. A chave de tema do script de
+  pré-pintura (antes do React) **ficou sem prefixo de propósito** -
+  prefixá-la exigiria saber o app id ali, o que depende de uma variável
+  de ambiente que pode nem existir nesse contexto; o efeito é cosmético
+  (o beta não acerta o tema de primeira na pré-pintura, corrige no
+  primeiro render do React) e nunca lê/escreve no valor de produção -
+  registrado como limitação aceita, não corrigido.
+- **`cacheId` do Workbox só é passado quando `IS_BETA`** (omitido por
+  completo em produção, não `undefined` explícito) - confirmado com um
+  build de teste que o `sw.js` de produção não ganha nenhuma chamada
+  `setCacheNameDetails` nova, e o do beta ganha exatamente uma, com o app
+  id como prefixo.
+- **`e2e/fixtures.ts`/`e2e/pwa.spec.ts`/`playwright.config.ts` também
+  ficaram dependentes de `VITE_BASE_PATH`/`VITE_APP_ID`** (duplicando a
+  mesma fórmula, pelo mesmo motivo de contexto Node) - sem isso, o CI do
+  repositório beta rodaria os 3 fluxos essenciais contra o caminho de
+  produção e falharia em todo teste. Confirmado com uma build completa
+  (`VITE_BASE_PATH`/`VITE_APP_ID` diferentes) + os mesmos testes
+  Playwright passando contra ela.
+- **`Code.gs`: `FOLDER_NAME`/`DATA_FILE_NAME` lidos de
+  `PropertiesService` com os literais de produção como padrão**,
+  `BACKUP_1_NAME`/`BACKUP_2_NAME` derivados de `DATA_FILE_NAME` (troca só
+  a extensão) em vez de propriedades próprias - manter os backups
+  amarrados ao nome do arquivo principal evita uma combinação inválida
+  (arquivo próprio do beta, backups ainda nomeados como os de produção).
+  `setupBetaStorage()` (função de conveniência, mesmo padrão de
+  `setupToken()`) configura os dois de uma vez para o caso comum; nomes
+  diferentes exigem chamar `PropertiesService.setProperty` direto (documentado
+  no `apps-script/README.md`).
+
+Teste obrigatório em `src/appId.test.ts` (produção reproduz os literais
+de hoje; dois ids nunca compartilham banco/localStorage/cacheId) e em
+`apps-script/test/harness.mjs` (uma cópia com `setupBetaStorage` +
+"reimplantação" simulada grava num Drive totalmente separado da
+produção, confirmado inspecionando as duas árvores de pastas de mentira).

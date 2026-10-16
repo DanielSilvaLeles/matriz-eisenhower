@@ -136,6 +136,45 @@ disso precisa de manutenção manual — é tudo automático.
   de segurança contra um aparelho com o banco local vazio apagar tudo sem
   querer.
 
+## Publicar uma cópia de teste (beta), isolada da produção
+
+Build para dois repositórios sem conflito de dados
+(`docs/prompt-anotacoes.md` seção 1.8): o front também muda de pasta/chaves
+de armazenamento quando compilado para o repositório `matriz-eisenhower-beta`
+(ver `src/appId.ts`), mas o **backend** (este `Code.gs`) não muda sozinho -
+cada implantação do Apps Script é independente, então uma cópia de teste
+publicada separadamente **continua apontando pro mesmo Drive/pasta de
+produção** até você configurar o contrário. Siga estes passos para isolar
+de verdade:
+
+1. Publique uma **cópia separada** deste script (um projeto novo em
+   [script.google.com](https://script.google.com), seguindo "Publicar pela
+   primeira vez" acima do zero) - **nunca** reaproveite a implantação de
+   produção para isto.
+2. Rode a função **`setupBetaStorage`** (menu Executar) nessa cópia - grava
+   duas propriedades do script (`MATRIZ_FOLDER_NAME`,
+   `MATRIZ_DATA_FILE_NAME`) com os valores `"Matriz de Eisenhower (beta)"`
+   e `"matriz-beta.json"`. Quer outros nomes? Edite a função antes de
+   rodar, ou rode manualmente:
+   ```js
+   PropertiesService.getScriptProperties().setProperty('MATRIZ_FOLDER_NAME', 'seu nome de pasta')
+   PropertiesService.getScriptProperties().setProperty('MATRIZ_DATA_FILE_NAME', 'seu-arquivo.json')
+   ```
+3. **Reimplante** essa cópia (Implantar → Gerenciar implantações → editar
+   → Nova versão) - `FOLDER_NAME`/`DATA_FILE_NAME` só são lidos uma vez, no
+   início de cada execução do script, então a implantação atual continua
+   com os valores antigos até reimplantar.
+4. Rode **`setupToken`** nessa cópia (um token **diferente** do de
+   produção) e copie a nova URL + token para a tela de Configurações do
+   app rodando o build do **beta**.
+
+Com isso, a cópia beta cria sua própria pasta e seu próprio arquivo no
+Drive, nunca lê nem escreve em `matriz.json` - mesmo que as duas
+implantações pertençam à mesma conta Google. Sem este passo, a cópia beta
+do script sincronizaria com os dados REAIS de produção, mesmo que o front
+beta já isole localStorage/IndexedDB/cache do navegador - o isolamento do
+Drive é uma configuração própria deste arquivo, não automática.
+
 ## Testando sem publicar de verdade
 
 `apps-script/test/harness.mjs` simula `DriveApp`, `PropertiesService`,

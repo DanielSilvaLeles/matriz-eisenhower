@@ -8,8 +8,18 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f7f9" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e1013" />
-    <link rel="icon" href="/matriz-eisenhower/favicon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/matriz-eisenhower/icons/apple-touch-icon.png" />
+    <!--
+      BASE_URL (substituição nativa do Vite, sempre definida - nunca uma
+      variável de ambiente que pode nem existir) em vez
+      de "/matriz-eisenhower/" literal: só os assets que o Vite injeta
+      (CSS, manifest) seguiam o `base` do build automaticamente - um href
+      hardcoded aqui continuava apontando pro repositório de produção
+      mesmo compilado com outro `base` (extensão "Anotações", build para
+      dois repositórios, docs/prompt-anotacoes.md seção 1.8). Confirmado
+      com um build de teste (base diferente) antes de trocar.
+    -->
+    <link rel="icon" href="%BASE_URL%favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="%BASE_URL%icons/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Matriz" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -20,6 +30,16 @@
        * e ela existe porque precisa rodar antes do React. Mantenha as duas em
        * sincronia: "light" e "dark" são explícitos, qualquer outro valor segue
        * o sistema.
+       *
+       * Limitação aceita no build do beta (docs/prompt-anotacoes.md seção
+       * 1.8): a chave aqui fica hardcoded sem o prefixo do app id (ao
+       * contrário de src/ui/theme.ts, que usa storageKey() de
+       * src/appId.ts) - não dá pra saber o app id aqui sem depender de uma
+       * variável de ambiente que pode nem existir neste build. No beta, a
+       * pré-pintura simplesmente não encontra a preferência salva (chave
+       * errada) e cai no tema do sistema por um instante, até o React
+       * assumir com a chave certa - nunca lê nem escreve o valor da
+       * produção, só não acerta de primeira no beta. Puramente cosmético.
        */
       try {
         var pref = localStorage.getItem('matriz:tema')

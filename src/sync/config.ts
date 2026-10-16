@@ -3,9 +3,10 @@
  * (docs secao 5.8) - nunca no repositorio, nunca na URL de uma requisicao
  * (vao no corpo POST), nunca em log ou mensagem de erro.
  */
+import { storageKey } from '@/appId.ts'
 
-const URL_KEY = 'matriz:sync:url'
-const TOKEN_KEY = 'matriz:sync:token'
+const URL_KEY = storageKey('matriz:sync:url')
+const TOKEN_KEY = storageKey('matriz:sync:token')
 
 function readLocal(key: string): string {
   try {

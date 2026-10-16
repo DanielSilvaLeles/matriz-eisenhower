@@ -7,7 +7,23 @@ import { defineConfig } from 'vitest/config'
 // O app e publicado em https://<usuario>.github.io/matriz-eisenhower/,
 // entao todo caminho absoluto precisa do subcaminho do repositorio.
 // Manifest, start_url, scope e service worker (fase 4) seguem este mesmo valor.
-export const BASE_PATH = '/matriz-eisenhower/'
+//
+// Build para dois repositórios sem conflito de dados
+// (`docs/prompt-anotacoes.md` seção 1.8): `VITE_BASE_PATH`/`VITE_APP_ID`
+// vêm do workflow de deploy (`.github/workflows/deploy.yml`), calculados a
+// partir de `github.event.repository.name` - **ausentes** (`undefined`)
+// em dev local e em qualquer build que não passe por esse workflow, caso
+// em que os valores de PRODUÇÃO abaixo são usados, exatamente como antes
+// desta extensão existir. `process.env`, não `import.meta.env`: este
+// arquivo roda em Node (configuração do Vite), não no bundle do browser -
+// `src/appId.ts` é o módulo equivalente para o código do app em si, que
+// não pode ser importado aqui por rodarem em contextos diferentes.
+const DEFAULT_BASE_PATH = '/matriz-eisenhower/'
+export const BASE_PATH = process.env['VITE_BASE_PATH'] ?? DEFAULT_BASE_PATH
+const APP_ID = process.env['VITE_APP_ID'] ?? ''
+const IS_BETA = APP_ID !== ''
+const APP_NAME = IS_BETA ? 'Matriz (beta)' : 'Matriz de Eisenhower'
+const APP_SHORT_NAME = IS_BETA ? 'Matriz beta' : 'Matriz'
 
 /**
  * Identificacao do build, para conferir se o Pages publicou a versao nova.
@@ -34,8 +50,8 @@ export default defineConfig({
       includeAssets: ['favicon.svg', 'icons/*.png'],
       manifest: {
         id: BASE_PATH,
-        name: 'Matriz de Eisenhower',
-        short_name: 'Matriz',
+        name: APP_NAME,
+        short_name: APP_SHORT_NAME,
         description: 'App pessoal de priorização com a Matriz de Eisenhower.',
         lang: 'pt-BR',
         start_url: BASE_PATH,
@@ -95,6 +111,14 @@ export default defineConfig({
         // (com o subcaminho do Pages explícito, pela mesma razão do manifest).
         navigateFallback: `${BASE_PATH}index.html`,
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // `cacheId` SÓ no beta (build para dois repositórios,
+        // docs/prompt-anotacoes.md seção 1.8) - omitido por completo em
+        // produção, para os nomes de cache do service worker continuarem
+        // exatamente como antes desta extensão existir. Produção e beta
+        // compartilham a mesma origem (github.io), e Cache Storage é
+        // isolado por origem, não por caminho - sem isto, os dois
+        // Service Workers disputariam os mesmos nomes de cache.
+        ...(IS_BETA ? { cacheId: APP_ID } : {}),
       },
     }),
   ],

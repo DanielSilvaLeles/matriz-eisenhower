@@ -16,7 +16,14 @@
     "erasableSyntaxOnly": true,
     "allowImportingTsExtensions": true,
     "paths": { "@/*": ["./src/*"] },
-    "types": ["node"]
+    // "vite/client" alem de "node": os testes (Vitest) rodam sobre o Vite
+    // de verdade, entao `import.meta.env.VITE_*` (src/appId.ts, extensão
+    // "Anotações" - build para dois repositórios, docs/prompt-anotacoes.md
+    // seção 1.8) e tao valido em teste quanto no app - sem isto, qualquer
+    // arquivo de teste que importe (direta ou indiretamente) um modulo
+    // assim falha so na checagem de tipos deste tsconfig, mesmo rodando
+    // certinho no Vitest de verdade.
+    "types": ["node", "vite/client"]
   },
   "include": [
     "vite.config.ts",

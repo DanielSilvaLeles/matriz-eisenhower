@@ -362,5 +362,110 @@ check('backups rotacionam: bak1 e bak2 existem depois de varios pushes', () => {
   assert.ok(names.includes('matriz.bak2.json'), 'faltou bak2: ' + names)
 })
 
+// 10. Build para dois repositórios (docs/prompt-anotacoes.md seção 1.8):
+// pasta e arquivo configuráveis por PropertiesService, com os valores de
+// PRODUÇÃO como padrão. Simula uma cópia SEPARADA do script, com as
+// propriedades já configuradas ANTES do script carregar (é exatamente
+// isso que "reimplantar depois de rodar setupBetaStorage" significa - a
+// próxima execução lê as propriedades do início).
+check('pasta/arquivo de produção batem com os literais de sempre, sem nenhuma propriedade configurada', () => {
+  // `FOLDER_NAME`/`DATA_FILE_NAME` são `const` no topo do script - não
+  // ficam acessíveis como propriedade do contexto vm (só `function`
+  // declarations ficam) - a prova é pelo comportamento: o nome da pasta e
+  // do arquivo que o script de fato criou no Drive de mentira.
+  assert.equal(driveFolders[0].name, 'Matriz de Eisenhower')
+  const names = driveFolders[0].files.map((f) => f.name)
+  assert.ok(names.includes('matriz.json'), 'faltou matriz.json: ' + names)
+})
+
+check('setupBetaStorage + reimplantação: pasta/arquivo próprios, isolados da produção', () => {
+  const betaDriveFolders = []
+  const betaScriptProps = {}
+  const betaContext = {
+    DriveApp: {
+      getFoldersByName(name) {
+        const matches = betaDriveFolders.filter((f) => f.name === name)
+        let i = 0
+        return { hasNext: () => i < matches.length, next: () => matches[i++] }
+      },
+      createFolder(name) {
+        const f = new FakeFolder(name)
+        betaDriveFolders.push(f)
+        return f
+      },
+    },
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: (k) => (k in betaScriptProps ? betaScriptProps[k] : null),
+        setProperty: (k, v) => {
+          betaScriptProps[k] = v
+        },
+      }),
+    },
+    LockService,
+    Utilities,
+    ContentService,
+    MimeType,
+    Logger,
+    console,
+  }
+  vm.createContext(betaContext)
+  vm.runInContext(source, betaContext, { filename: 'Code.gs (copia beta)' })
+
+  // Roda setupBetaStorage() - so grava as propriedades, nao muda o
+  // FOLDER_NAME/DATA_FILE_NAME desta mesma execucao (sao lidos uma vez,
+  // no topo do arquivo - por isso "reimplantar" depois e necessario de
+  // verdade no Apps Script real).
+  betaContext.setupBetaStorage()
+  assert.equal(betaScriptProps['MATRIZ_FOLDER_NAME'], 'Matriz de Eisenhower (beta)')
+  assert.equal(betaScriptProps['MATRIZ_DATA_FILE_NAME'], 'matriz-beta.json')
+
+  // "Reimplanta": carrega Code.gs de novo, agora com as propriedades ja
+  // configuradas - simula a proxima execucao fria depois de reimplantar.
+  const reloadedContext = {
+    DriveApp: betaContext.DriveApp,
+    PropertiesService: betaContext.PropertiesService,
+    LockService,
+    Utilities,
+    ContentService,
+    MimeType,
+    Logger,
+    console,
+  }
+  vm.createContext(reloadedContext)
+  vm.runInContext(source, reloadedContext, { filename: 'Code.gs (copia beta, reimplantada)' })
+
+  // setupToken/push de verdade nessa copia, so pra confirmar que ela
+  // funciona isolada - grava no Drive dela, nunca no `driveFolders` da
+  // produção (verificado abaixo).
+  function betaDoPost(bodyObj) {
+    const e = { postData: { contents: JSON.stringify(bodyObj) } }
+    const result = reloadedContext.doPost(e)
+    return JSON.parse(result._text)
+  }
+  reloadedContext.setupToken()
+  const betaToken = betaScriptProps['MATRIZ_TOKEN']
+  const pushRes = betaDoPost({
+    action: 'push', token: betaToken, baseRevision: 0,
+    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [], notes: [] },
+  })
+  assert.equal(pushRes.ok, true)
+  // Segundo push - so a partir dele existe algo pra rotacionar como backup.
+  const pushRes2 = betaDoPost({
+    action: 'push', token: betaToken, baseRevision: pushRes.revision,
+    data: { schemaVersion: 1, tasks: [sampleTask], task_events: [], people: [], notes: [] },
+  })
+  assert.equal(pushRes2.ok, true)
+
+  const betaFileNames = betaDriveFolders[0].files.map((f) => f.name)
+  assert.ok(betaFileNames.includes('matriz-beta.json'), 'faltou o arquivo de dados do beta: ' + betaFileNames)
+  assert.ok(betaFileNames.includes('matriz-beta.bak1.json'), 'faltou o backup do beta: ' + betaFileNames)
+
+  // A produção (driveFolders, o context original deste arquivo) nunca viu
+  // nada disso - pastas e arquivos completamente separados.
+  assert.equal(driveFolders[0].name, 'Matriz de Eisenhower')
+  assert.ok(!driveFolders.some((f) => f.name === 'Matriz de Eisenhower (beta)'))
+})
+
 console.log(`\n${passed} passaram, ${failed} falharam`)
 if (failed > 0) process.exit(1)

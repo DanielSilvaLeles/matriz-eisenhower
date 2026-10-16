@@ -2,14 +2,18 @@
  * Preferencia de tema: claro, escuro ou do sistema (docs secao 5.8).
  *
  * Logica pura e separada do React para poder ser testada e para ser reusada
- * pelo script do index.html que aplica o tema antes da primeira pintura.
+ * pelo script do index.html que aplica o tema antes da primeira pintura
+ * (essa cópia no index.html usa a chave sem prefixo, de propósito - ver o
+ * comentário lá, build para dois repositórios, docs/prompt-anotacoes.md
+ * seção 1.8).
  */
+import { storageKey } from '@/appId.ts'
 
 export type ThemePreference = 'light' | 'dark' | 'system'
 export type ResolvedTheme = 'light' | 'dark'
 
 /** Guardado so no aparelho, como todo ajuste local. */
-export const THEME_STORAGE_KEY = 'matriz:tema'
+export const THEME_STORAGE_KEY = storageKey('matriz:tema')
 
 const PREFERENCES: readonly ThemePreference[] = ['light', 'dark', 'system']
 

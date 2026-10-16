@@ -27,6 +27,7 @@ Script) é a cópia compartilhada entre aparelhos. Nada de VPS, túnel ou proxy.
 
 ```
 src/
+  appId.ts  convenção central do build para dois repositórios (produção+beta) — ver seção "Publicação"
   domain/   regras puras, sem React, sem banco, sem rede — tudo com teste
     task.ts           criar/mover/reordenar/concluir/reabrir
     taskLifecycle.ts  arquivar, restaurar do histórico, editar campos, ordem por quadrante
@@ -34,24 +35,36 @@ src/
     delegationMessage.ts  "Copiar mensagem de delegação" (Q3)
     calendarLink.ts   link pré-preenchido do Google Agenda, sem OAuth
     weeklyReview.ts   as quatro métricas da revisão semanal (docs seção 5.9)
+    note.ts           criar/editar/apagar(lógico)/restaurar anotação, continuação de lista
+    noteTags.ts / noteGrouping.ts / noteSearch.ts  tags, agrupamento por dia, busca/filtro
+    noteMerge.ts      mesclagem com cópia de conflito (anotação nunca perde texto)
+    actionLines.ts    linhas "[ ]"/"- [ ] " de uma anotação → tarefa (elo com a matriz)
+    notesMarkdown.ts  "Exportar anotações em Markdown"
   db/       Dexie: schema, migrations, repositório de tarefas e backup
             changeSignal.ts avisa o sync de uma escrita sem o db conhecer o sync
             peopleRepo.ts   autocomplete de "Para quem?" (docs seção 5.3)
             archiveQ4.ts    arquivamento automático do Q4 na virada do dia
             tasksRepo.lifecycle.ts  editTaskFields/archiveTaskById/restoreTaskFromHistory
+            notesRepo.ts / notesRepo.lifecycle.ts / notesRepo.actionLines.ts  mesmo padrão, para anotações
   capture.ts  porta única de captura (docs seção 8), usada pela caixa de entrada
-  sync/     ciclo pull -> merge -> push -> verificação
+  sync/     ciclo pull -> merge -> push -> verificação (tarefas E anotações)
     client.ts    chamada HTTP de baixo nível (classifica toda falha num motivo)
-    engine.ts     o ciclo, o store de status, de-duplicação de chamadas concorrentes
+    engine.ts     o ciclo, o store de status, de-duplicação de chamadas concorrentes,
+                  detecção de script antigo (capabilities), pre-check `status`
+    engineApply.ts  aplicar o resultado do ciclo + montar o resumo "Confirmado"
+    payloadSize.ts  aviso prévio de payload perto do limite do Apps Script
     triggers.ts   quando sincronizar (abrir, foco, 1h, debounce, online/offline, botão)
     config.ts     URL/token — só em localStorage
     errorMessages.ts  mensagem especifica por tipo de erro (docs secao 6.3)
-    engine.testHelpers.ts  servidor/localStorage simulados, usado pelos dois arquivos abaixo
+    engine.testHelpers.ts  servidor/localStorage simulados, usado pelos arquivos de teste abaixo
     engine.test.ts             ciclo basico (primeiro sync, pull de outro aparelho, erro, offline)
     engine.raceConditions.test.ts  escrita local concorrente com um ciclo em voo
+    engine.notes.test.ts       sync de anotações, conflito, pre-check status, script antigo
   pwa/      intenção de chegada no app (docs seção 8): share target e atalho "Nova anotação"
   ui/
     components/  componentes de apresentação
+    notes/        editor/lista de anotações, elo com a matriz (botão "→ Caixa de entrada")
+    router/        roteamento por hash (#/anotacoes, #/anotacoes/:id) — docs/prompt-anotacoes.md seção 3.3
     triage/      modo triagem (docs seção 5.3) — store + overlay + passos
     detail/      store do painel de detalhe (docs seção 5.5), compartilhado
     dnd/         DndContext único (desktop + caixa de entrada), ids de contentor
@@ -65,7 +78,7 @@ src/
   styles/   tokens de design e CSS global
 public/
   icons/      ícones do manifest (.png gerados + .svg fonte, para regenerar sem depender de nada)
-e2e/        Playwright — add-and-move-task/sync-cycle/triage.spec.ts (3 fluxos
+e2e/        Playwright — add-and-move-task/sync-cycle/triage/notes.spec.ts (fluxos
             essenciais, docs seção 9), pwa.spec.ts (fase 4), responsive.spec.ts e
             task-detail-autosave.spec.ts (regressões pós-lançamento)
 apps-script/  backend no Google Apps Script (Code.gs + README.md de publicação)
@@ -1091,10 +1104,85 @@ GitHub Pages em `https://danielsilvaleles.github.io/matriz-eisenhower/`.
 O `base` do Vite é `/matriz-eisenhower/` (`BASE_PATH` em `vite.config.ts`) e o
 manifest, o `start_url`, o `scope` e o service worker da fase 4 seguem o mesmo
 valor. `.github/workflows/deploy.yml` roda lint, tipos, testes e build e publica
-a cada push na `main`.
+a cada push na `main` (e, desde a extensão "Anotações", também na `master` -
+ver abaixo).
 
 O rodapé mostra o SHA do commit e a hora do build, para conferir de relance se
 o Pages realmente publicou a versão nova.
+
+### Build para dois repositórios (produção + beta), sem conflito de dados
+
+**Por quê:** testar a extensão "Anotações" no celular/PC da empresa antes
+de publicar em produção, sem usar o repositório real. O problema: o
+navegador isola armazenamento (localStorage, IndexedDB, Cache Storage)
+por **origem**, não por caminho - `danielsilvaleles.github.io/matriz-eisenhower/`
+e `danielsilvaleles.github.io/matriz-eisenhower-beta/` são a MESMA origem
+(`https://danielsilvaleles.github.io`). Sem isolar explicitamente, abrir o
+beta leria e **migraria o banco real de produção**.
+
+**Como funciona:** `.github/workflows/deploy.yml` calcula, a partir de
+`github.event.repository.name`, dois valores passados como env vars pro
+`npm run build`/`npx playwright test`:
+- `VITE_BASE_PATH` = `/<nome-do-repo>/` (sempre).
+- `VITE_APP_ID` = vazio (`''`) se o repo for `matriz-eisenhower`
+  (produção); senão, o próprio nome do repo (ex.: `matriz-eisenhower-beta`).
+
+`src/appId.ts` é a convenção central: **`APP_ID === ''` significa
+produção**, e toda função ali (`dbNameFor`, `storageKeyFor`, `cacheIdFor`,
+`appNameFor`) devolve o nome de sempre, sem nenhum prefixo, para esse
+caso - zero mudança de comportamento hoje. Qualquer outro id prefixa:
+
+- `src/db/schema.ts` (`DB_NAME`): `"<appId>-matriz-eisenhower"`.
+- `src/ui/theme.ts`, `src/db/device.ts`, `src/sync/config.ts`: cada chave
+  de `localStorage` ganha `"<appId>:"` na frente.
+- `vite.config.ts`: `workbox.cacheId` (só passado quando há app id - em
+  produção a opção nem existe no config) prefixa todo nome de cache do
+  Workbox via `setCacheNameDetails`; manifest `name`/`short_name`
+  passam a "Matriz (beta)"/"Matriz beta"; `id`/`start_url`/`scope` seguem
+  o `BASE_PATH` calculado (já seguiam antes, automaticamente).
+- `HeaderBar.tsx`: selo "BETA" ao lado do título quando `IS_BETA`.
+
+**Achado ao implementar:** `index.html` tinha dois `href` hardcoded
+(`favicon.svg`, `apple-touch-icon.png`) com `/matriz-eisenhower/` literal -
+só os assets que o Vite injeta (CSS, manifest) seguem o `base` do build
+automaticamente; um `href` escrito à mão no HTML-fonte, não. Confirmado
+compilando com um `base` diferente antes de mexer em qualquer config real
+(o ícone continuava apontando pro caminho de produção). Corrigido com
+`%BASE_URL%` (substituição nativa do Vite em HTML, sempre definida). A
+chave de tema do script de pré-pintura (antes do React, único trecho que
+`src/ui/theme.ts` documenta como "duplicado de propósito") ficou **sem**
+prefixo, de propósito - prefixá-la ali dependeria de uma variável de
+ambiente que pode nem existir nesse contexto; o efeito é só cosmético (tema
+errado por um instante no beta, nunca lê/escreve o valor de produção).
+
+`vite.config.ts`/`playwright.config.ts`/`e2e/fixtures.ts`/`e2e/pwa.spec.ts`
+leem `process.env.VITE_BASE_PATH`/`VITE_APP_ID` **direto**, nunca
+importam `src/appId.ts` - esses arquivos rodam em Node puro (configuração/
+CLI/Playwright), fora do transform do Vite que torna `import.meta.env`
+válido. Mesma duplicação que já existe entre `src/domain/checksum.ts` e
+`apps-script/Code.gs`, pelo mesmo motivo (contextos de execução
+diferentes). `tsconfig.node.json` ganhou `"vite/client"` nos `types` (o
+Vitest roda sobre o Vite de verdade, então `import.meta.env` é válido em
+teste - sem isso `src/appId.test.ts` não tipava).
+
+**`Code.gs` continua sendo uma implantação própria, não acompanha o
+`VITE_APP_ID` automaticamente** - `FOLDER_NAME`/`DATA_FILE_NAME` vêm de
+`PropertiesService`, com os literais de produção (`"Matriz de
+Eisenhower"`, `"matriz.json"`) como padrão. Uma cópia do script para
+testar o beta roda `setupBetaStorage()` (menu Executar, grava duas
+propriedades) e **reimplanta** (os nomes só são lidos no início de cada
+execução) - sem isso, a cópia beta sincronizaria com os dados REAIS de
+produção, mesmo com o front isolando localStorage/IndexedDB/cache do
+navegador. Passo a passo completo em `apps-script/README.md`.
+
+Testes: `src/appId.test.ts` (produção reproduz os literais de hoje; dois
+app ids nunca compartilham banco/chave de localStorage/cacheId) e um
+cenário em `apps-script/test/harness.mjs` que roda `setupBetaStorage` +
+simula uma reimplantação, confirmando que a cópia beta grava num Drive
+totalmente separado do de produção. Confirmado manualmente também: um
+build com `VITE_BASE_PATH`/`VITE_APP_ID` diferentes gera
+`sw.js`/manifest/ícones corretos para esse caminho, e os mesmos testes
+Playwright passam contra ele.
 
 ## Limitações aceitas (registradas de propósito)
 
@@ -1264,3 +1352,58 @@ fim - sem reler o estado logo antes de escrever, qualquer coisa que
 aconteça no meio do caminho é perdida ou desfeita silenciosamente, sem
 erro nenhum. Vale a pena desconfiar desse padrão em qualquer código novo
 que leia-processa-grava com uma espera real no meio.
+
+### Extensão "Anotações + menu inferior" (`docs/prompt-anotacoes.md`)
+
+Trabalho feito na branch `feature/anotacoes` (nunca mesclada/publicada por
+este agente - ver `docs/RELATORIO-ANOTACOES.md` para o relatório completo
+e o roteiro de teste manual). Três fases da seção 10 do prompt, mais o
+item 8 (build para dois repositórios):
+
+**Fase 1 (núcleo local + menu inferior):** tabela `notes` nova + migration
+testada com fixture v1; roteamento por hash próprio (`#/anotacoes`,
+`#/anotacoes/:id`); editor com autosave agressivo (debounce 500ms +
+flush em blur/visibilitychange/pagehide, "Inserir hora", continuação de
+lista no Enter); lista com busca/filtro/agrupamento por dia; menu
+inferior do celular (4 destinos) substituindo a barra de captura fixa;
+abas e atalhos (`A`/`L`/`/`) no desktop; lixeira de 30 dias.
+
+**Fase 2 (sincronização):** `notes` no protocolo de sync (checksum,
+payload, validação); ação `status` (pula o pull completo quando nada
+mudou); mesclagem com cópia de conflito para edição concorrente de
+anotação (nunca descarta texto - `src/domain/noteMerge.ts`); **compatibilidade
+obrigatória com o script antigo** (`capabilities` ausente = script
+anterior a esta extensão - tarefas continuam sincronizando, anotações
+ficam só locais até reimplantar, nunca falha nem perde dado); aviso prévio
+de payload perto do limite.
+
+**Fase 3 (elo com a matriz + exportação):** linhas `[ ]`/`- [ ] ` de uma
+anotação ganham botão "→ Caixa de entrada" (cria tarefa com
+`source_note_id`, marca `[→]`); "Ver anotação de origem" no detalhe da
+tarefa; backup passa a incluir anotações (tolerante a um backup sem a
+chave `notes`); "Exportar anotações em Markdown".
+
+**Item 8 (build para dois repositórios):** ver "Build para dois
+repositórios" na seção Publicação, acima.
+
+**Dois bugs reais encontrados, nenhum por teste que já existia antes
+desta extensão:**
+
+1. **`isValidData_` (Code.gs) rejeitava um `matriz.json` existente sem a
+   chave `notes`** - a primeira leitura depois de reimplantar o script
+   cairia para `emptyData_()`, fazendo tarefas de verdade "desaparecerem"
+   da tela (não do Drive). Achado revisando o código pensando no caminho
+   INVERSO da compatibilidade pedida (dados antigos relidos por um script
+   novo). Corrigido tolerando a ausência da chave e normalizando para
+   `[]` logo depois de validar (`normalizeData_`).
+2. **`index.html` tinha dois `href` hardcoded** (`favicon.svg`,
+   `apple-touch-icon.png`) com `/matriz-eisenhower/` literal - só os
+   assets que o Vite injeta (CSS, manifest) seguiam o `base` do build
+   automaticamente. Achado compilando com um `base` diferente antes de
+   mexer em qualquer config real. Corrigido com `%BASE_URL%`.
+
+Gate completo (lint, typecheck, 423 testes unitários, 24 cenários do
+harness do Apps Script, 28 testes Playwright) verde ao final de cada
+fase, mais uma rodada extra validando um build com `VITE_BASE_PATH`/
+`VITE_APP_ID` diferentes (simulando o repositório beta) contra os mesmos
+testes Playwright.

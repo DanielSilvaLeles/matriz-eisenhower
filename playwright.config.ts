@@ -12,6 +12,12 @@ import { defineConfig, devices } from '@playwright/test'
  * Roda contra o build de producao (`npm run build` + `npm run preview`),
  * nao o servidor de desenvolvimento - e o que o CI publica de verdade.
  */
+// Mesma variável que `vite.config.ts` lê para o `base` do build (build
+// para dois repositórios, docs/prompt-anotacoes.md seção 1.8) - sem isto,
+// o CI do repositório beta rodaria o Playwright contra o caminho de
+// produção, errado para aquele build.
+const BASE_PATH = process.env['VITE_BASE_PATH'] ?? '/matriz-eisenhower/'
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -24,7 +30,7 @@ export default defineConfig({
   reporter: process.env['CI'] === undefined ? 'list' : 'github',
 
   use: {
-    baseURL: 'http://localhost:4173/matriz-eisenhower/',
+    baseURL: `http://localhost:4173${BASE_PATH}`,
     trace: 'on-first-retry',
   },
 
@@ -34,7 +40,7 @@ export default defineConfig({
 
   webServer: {
     command: 'npm run preview',
-    url: 'http://localhost:4173/matriz-eisenhower/',
+    url: `http://localhost:4173${BASE_PATH}`,
     reuseExistingServer: process.env['CI'] === undefined,
     timeout: 30_000,
   },

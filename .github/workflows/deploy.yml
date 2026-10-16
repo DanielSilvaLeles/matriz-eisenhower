@@ -2,9 +2,9 @@ name: Verificar e publicar
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
-    branches: [main]
+    branches: [main, master]
   # Permite republicar sem precisar de um commit novo.
   workflow_dispatch:
 
@@ -48,8 +48,32 @@ jobs:
       - name: Testes do backend (Apps Script simulado)
         run: npm run test:gas
 
+      # Build para dois repositórios sem conflito de dados
+      # (docs/prompt-anotacoes.md seção 1.8): calcula `VITE_BASE_PATH`/
+      # `VITE_APP_ID` a partir de `github.event.repository.name`, para o
+      # MESMO código funcionar tanto no repositório de produção quanto em
+      # qualquer cópia de teste (nome terminado em "-beta"). Produção usa
+      # `VITE_APP_ID=''` (vazio) de propósito - é a convenção central de
+      # `src/appId.ts` para "nada muda" nos nomes de armazenamento/manifest
+      # de hoje. `github.event.repository.name` funciona tanto em `push`
+      # quanto em `pull_request`/`workflow_dispatch`, sempre o nome do
+      # repositório onde o workflow está rodando.
+      - name: Calcular base path e app id
+        id: appid
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          echo "base_path=/$REPO_NAME/" >> "$GITHUB_OUTPUT"
+          if [[ "$REPO_NAME" == *-beta ]]; then
+            echo "app_id=$REPO_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "app_id=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build
         run: npm run build
+        env:
+          VITE_BASE_PATH: ${{ steps.appid.outputs.base_path }}
+          VITE_APP_ID: ${{ steps.appid.outputs.app_id }}
 
       # So o chromium: os 3 fluxos essenciais (docs secao 9) nao precisam
       # de cobertura entre navegadores, so confirmar que funcionam de verdade.
@@ -58,6 +82,8 @@ jobs:
 
       - name: Testes de ponta a ponta
         run: npx playwright test
+        env:
+          VITE_BASE_PATH: ${{ steps.appid.outputs.base_path }}
 
       - name: Guardar o relatorio do Playwright em caso de falha
         if: failure()
@@ -68,7 +94,7 @@ jobs:
           retention-days: 7
 
       - name: Guardar o site para a publicacao
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5
         with:
           path: dist
@@ -76,7 +102,7 @@ jobs:
   publicar:
     name: Publicar no GitHub Pages
     needs: verificar
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 
     permissions:

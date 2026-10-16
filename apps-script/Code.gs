@@ -22,10 +22,21 @@
 
 // ───────────────────────── Configuração ─────────────────────────
 
-const FOLDER_NAME = 'Matriz de Eisenhower'
-const DATA_FILE_NAME = 'matriz.json'
-const BACKUP_1_NAME = 'matriz.bak1.json'
-const BACKUP_2_NAME = 'matriz.bak2.json'
+/**
+ * Nome da pasta e do arquivo de dados no Drive - vêm de propriedades do
+ * script (`PropertiesService`), com os valores de PRODUÇÃO de sempre como
+ * padrão (extensão "Anotações", docs/prompt-anotacoes.md seção 1.8: "build
+ * para dois repositórios"). Uma cópia deste script publicada só para
+ * testar o beta roda `setupBetaStorage()` (abaixo) UMA vez, antes de
+ * qualquer sincronização, e passa a ler/escrever num arquivo totalmente
+ * separado do de produção - sem editar nenhuma linha de código. Sem
+ * nenhuma propriedade configurada (o caso de produção, hoje), o
+ * comportamento é EXATAMENTE o mesmo de antes desta extensão existir.
+ */
+const FOLDER_NAME = PropertiesService.getScriptProperties().getProperty('MATRIZ_FOLDER_NAME') || 'Matriz de Eisenhower'
+const DATA_FILE_NAME = PropertiesService.getScriptProperties().getProperty('MATRIZ_DATA_FILE_NAME') || 'matriz.json'
+const BACKUP_1_NAME = DATA_FILE_NAME.replace(/\.json$/, '.bak1.json')
+const BACKUP_2_NAME = DATA_FILE_NAME.replace(/\.json$/, '.bak2.json')
 const TOKEN_PROPERTY_KEY = 'MATRIZ_TOKEN'
 const SCHEMA_VERSION = 1
 
@@ -255,6 +266,27 @@ function rotateToken() {
 /** Duas UUIDs concatenadas sem os hífens: 64 caracteres, bem acima do mínimo de 32. */
 function generateToken_() {
   return (Utilities.getUuid() + Utilities.getUuid()).split('-').join('')
+}
+
+// ───────────────────────── Armazenamento (build para dois repositórios) ─────────────────────────
+
+/**
+ * Rode uma vez (menu Executar → setupBetaStorage), SÓ numa cópia deste
+ * script publicada separadamente para testar o beta (nunca na cópia de
+ * produção) - `apps-script/README.md` tem o passo a passo completo.
+ * Depois de rodar, reimplante essa cópia (Implantar → Gerenciar
+ * implantações → editar → Nova versão) para o `FOLDER_NAME`/
+ * `DATA_FILE_NAME` novos valerem - eles são lidos uma vez só, no início de
+ * cada execução do script.
+ */
+function setupBetaStorage() {
+  const props = PropertiesService.getScriptProperties()
+  props.setProperty('MATRIZ_FOLDER_NAME', 'Matriz de Eisenhower (beta)')
+  props.setProperty('MATRIZ_DATA_FILE_NAME', 'matriz-beta.json')
+  Logger.log(
+    'Armazenamento do beta configurado - pasta "Matriz de Eisenhower (beta)", arquivo "matriz-beta.json". ' +
+      'Reimplante esta cópia do script (Implantar → Gerenciar implantações → editar → Nova versão) para valer.',
+  )
 }
 
 function checkToken_(token) {

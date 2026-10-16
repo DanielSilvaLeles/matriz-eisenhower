@@ -940,6 +940,60 @@ tanto na tela principal quanto com o painel de detalhe aberto - confirmado
 que os dois testes **falham** (64px e 90px de estouro) sem a correção e
 passam com ela.
 
+### Bug real em produção: texto do painel de detalhe se perdia sem o `onBlur` disparar
+
+**Relatado pelo usuário**: "às vezes estou no meio de uma tarefa e acabo
+perdendo [o que digitei], ou a tela dando atualização." Investigado junto
+com o estouro do cabeçalho (acima) por serem relatados na mesma mensagem,
+mas a causa raiz aqui é diferente e específica do painel de detalhe.
+
+**Causa raiz:** `TaskDetailFields.tsx` salvava os campos de texto (título,
+notas, delegação, tags) **só no `onBlur`** - decisão deliberada desta fase
+("editar um campo e sair dele é um evento discreto o bastante pra não
+precisar de temporizador"). Essa premissa supõe que a pessoa sempre sai do
+campo de propósito. Na prática, qualquer interrupção fora do controle dela
+- trocar de app no celular e o navegador reclamar a aba em segundo plano,
+a aba perder o processo por pressão de memória, fechar sem querer - encerra
+a edição **sem nunca disparar o `onBlur`**. Tudo que tinha sido digitado e
+ainda não "solto" do campo (com o cursor ainda lá dentro) se perdia por
+inteiro, porque nada mais no app persistia esse texto em lugar nenhum.
+"A tela dando atualização" bate com isso: reabrir o app depois de uma
+dessas interrupções mostra um estado que parece ter "voltado" para antes
+da edição.
+
+**Correção:** `src/ui/hooks/useDebouncedCallback.ts` (novo, reutilizável) -
+cada campo de texto em `TaskDetailFields.tsx` ganhou um autosave que
+dispara sozinho depois de uma pausa de digitação de 1.5s
+(`AUTOSAVE_DELAY_MS`), **sem precisar sair do campo**. O `onBlur` continua
+existindo do jeito que já era (salvamento imediato e garantido ao sair) -
+o autosave é só a rede de segurança pro meio do caminho, pro que a pessoa
+digitou sobreviver mesmo que a interrupção aconteça enquanto o cursor
+ainda está no campo.
+
+Cuidado ao implementar o hook: a primeira versão guardava a `callback`
+mais atual escrevendo direto num `useRef` **durante a renderização**
+(`callbackRef.current = callback`) - o oxlint (`react(refs)`) rejeitou
+isso com razão: mutar um ref durante o render quebra a pureza esperada
+pelo React. Corrigido movendo essa escrita para dentro de um `useEffect`
+(o padrão correto do "ref sempre atual"), e envolvendo `run`/`cancel` em
+`useCallback` - sem isso, o `useEffect` de limpeza (`useEffect(() =>
+cancel, [])`) também disparava o aviso de dependências do oxlint por
+`cancel` ser uma função nova a cada render.
+
+**Teste de regressão** em `e2e/task-detail-autosave.spec.ts`: digita no
+campo "Notas", espera passar da pausa do autosave **sem nunca clicar fora
+do campo** (o `onBlur` literalmente nunca dispara no teste), recarrega a
+página (simula a interrupção de verdade) e confirma que o texto
+sobreviveu. Confirmado que esse teste **falha** (valor vazio) sem a
+correção e passa com ela.
+
+**Verificado também na mão**, digitando dentro do `<textarea>` e lendo o
+IndexedDB direto via `indexedDB.open('matriz-eisenhower')` sem nunca sair
+do campo - o valor já estava persistido no banco antes mesmo do teste
+automatizado existir, e o campo nem perdeu o foco/posição do cursor ao
+salvar (o autosave é silencioso - escreve no Dexie, não mexe no estado
+local `useState` que já está exibindo o que a pessoa digitou).
+
 ## Segurança (o repositório é público)
 
 - **Nenhum segredo no código, nos testes ou no histórico do git.**

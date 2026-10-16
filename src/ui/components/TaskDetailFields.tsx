@@ -3,6 +3,10 @@ import { getDB } from '@/db/schema.ts'
 import { editTaskFields } from '@/db/tasksRepo.lifecycle.ts'
 import { quadrantMeta } from '@/domain/quadrant.ts'
 import type { Task } from '@/domain/schema.ts'
+import { useDebouncedCallback } from '@/ui/hooks/useDebouncedCallback.ts'
+
+/** Pausa de digitação antes do autosave entrar em ação (ver useDebouncedCallback.ts). */
+const AUTOSAVE_DELAY_MS = 1_500
 
 export interface TaskDetailFieldsProps {
   task: Task
@@ -24,10 +28,18 @@ function parseTags(text: string): readonly string[] {
 
 /**
  * Campos editaveis do painel de detalhe (docs secao 5.5): "salva sozinho ao
- * editar", um `onBlur` por campo de texto (sem debounce: editar um campo e
- * sair dele e um evento discreto o bastante para nao precisar de temporizador).
- * Data e troca de quadrante salvam no `onChange`, por serem escolhas de uma
- * tecla so, nao digitacao continua.
+ * editar" - um `onBlur` por campo de texto salva na hora de sair do campo,
+ * mais um autosave debounced (`AUTOSAVE_DELAY_MS` de pausa) que salva
+ * sozinho mesmo sem a pessoa sair do campo. Data e troca de quadrante
+ * salvam direto no `onChange`, por serem escolhas de uma tecla só, não
+ * digitação contínua.
+ *
+ * **O autosave debounced existe por causa de um relato real de perda de
+ * texto**: só `onBlur` (a decisão original desta tela) supõe que a pessoa
+ * sempre sai do campo de propósito - mas uma interrupção fora do controle
+ * dela (trocar de app no celular e o navegador reclamar a aba em segundo
+ * plano, por exemplo) também encerra a edição sem nunca disparar o
+ * `onBlur`. Ver `useDebouncedCallback.ts` para o raciocínio completo.
  *
  * Recebe `key={task.id}` do componente pai (TaskDetailPanel): trocar de
  * tarefa remonta este componente do zero, com o estado local reiniciado a
@@ -52,6 +64,30 @@ export function TaskDetailFields({ task, peopleNames }: TaskDetailFieldsProps) {
     })
   }
 
+  const titleAutosave = useDebouncedCallback((value: string) => {
+    if (value.trim() !== task.title) save({ title: value })
+  }, AUTOSAVE_DELAY_MS)
+  const notesAutosave = useDebouncedCallback((value: string) => {
+    const next = value.trim() === '' ? null : value
+    if (next !== task.notes) save({ notes: next })
+  }, AUTOSAVE_DELAY_MS)
+  const delegatedToAutosave = useDebouncedCallback((value: string) => {
+    const next = value.trim() === '' ? null : value.trim()
+    if (next !== task.delegated_to) save({ delegated_to: next })
+  }, AUTOSAVE_DELAY_MS)
+  const delegationContextAutosave = useDebouncedCallback((value: string) => {
+    const next = value.trim() === '' ? null : value
+    if (next !== task.delegation_context) save({ delegation_context: next })
+  }, AUTOSAVE_DELAY_MS)
+  const expectedOutcomeAutosave = useDebouncedCallback((value: string) => {
+    const next = value.trim() === '' ? null : value
+    if (next !== task.expected_outcome) save({ expected_outcome: next })
+  }, AUTOSAVE_DELAY_MS)
+  const tagsAutosave = useDebouncedCallback((value: string) => {
+    const next = parseTags(value)
+    if (next.join(',') !== task.tags.join(',')) save({ tags: next })
+  }, AUTOSAVE_DELAY_MS)
+
   const titleId = useId()
   const notesId = useId()
   const dateId = useId()
@@ -72,8 +108,10 @@ export function TaskDetailFields({ task, peopleNames }: TaskDetailFieldsProps) {
           value={title}
           onChange={(event) => {
             setTitle(event.target.value)
+            titleAutosave.run(event.target.value)
           }}
           onBlur={() => {
+            titleAutosave.cancel()
             if (title.trim() !== task.title) save({ title })
           }}
           onKeyDown={(event) => {
@@ -110,8 +148,10 @@ export function TaskDetailFields({ task, peopleNames }: TaskDetailFieldsProps) {
           value={notes}
           onChange={(event) => {
             setNotes(event.target.value)
+            notesAutosave.run(event.target.value)
           }}
           onBlur={() => {
+            notesAutosave.cancel()
             const next = notes.trim() === '' ? null : notes
             if (next !== task.notes) save({ notes: next })
           }}
@@ -134,8 +174,10 @@ export function TaskDetailFields({ task, peopleNames }: TaskDetailFieldsProps) {
           value={delegatedTo}
           onChange={(event) => {
             setDelegatedTo(event.target.value)
+            delegatedToAutosave.run(event.target.value)
           }}
           onBlur={() => {
+            delegatedToAutosave.cancel()
             const next = delegatedTo.trim() === '' ? null : delegatedTo.trim()
             if (next !== task.delegated_to) save({ delegated_to: next })
           }}
@@ -159,8 +201,10 @@ export function TaskDetailFields({ task, peopleNames }: TaskDetailFieldsProps) {
           value={delegationContext}
           onChange={(event) => {
             setDelegationContext(event.target.value)
+            delegationContextAutosave.run(event.target.value)
           }}
           onBlur={() => {
+            delegationContextAutosave.cancel()
             const next = delegationContext.trim() === '' ? null : delegationContext
             if (next !== task.delegation_context) save({ delegation_context: next })
           }}
@@ -176,8 +220,10 @@ export function TaskDetailFields({ task, peopleNames }: TaskDetailFieldsProps) {
           value={expectedOutcome}
           onChange={(event) => {
             setExpectedOutcome(event.target.value)
+            expectedOutcomeAutosave.run(event.target.value)
           }}
           onBlur={() => {
+            expectedOutcomeAutosave.cancel()
             const next = expectedOutcome.trim() === '' ? null : expectedOutcome
             if (next !== task.expected_outcome) save({ expected_outcome: next })
           }}
@@ -195,8 +241,10 @@ export function TaskDetailFields({ task, peopleNames }: TaskDetailFieldsProps) {
           value={tagsText}
           onChange={(event) => {
             setTagsText(event.target.value)
+            tagsAutosave.run(event.target.value)
           }}
           onBlur={() => {
+            tagsAutosave.cancel()
             const next = parseTags(tagsText)
             if (next.join(',') !== task.tags.join(',')) save({ tags: next })
           }}

@@ -43,8 +43,12 @@ src/
   sync/     ciclo pull -> merge -> push -> verificação
     client.ts    chamada HTTP de baixo nível (classifica toda falha num motivo)
     engine.ts     o ciclo, o store de status, de-duplicação de chamadas concorrentes
-    triggers.ts   quando sincronizar (abrir, foco, 60s, debounce, online/offline, botão)
+    triggers.ts   quando sincronizar (abrir, foco, 1h, debounce, online/offline, botão)
     config.ts     URL/token — só em localStorage
+    errorMessages.ts  mensagem especifica por tipo de erro (docs secao 6.3)
+    engine.testHelpers.ts  servidor/localStorage simulados, usado pelos dois arquivos abaixo
+    engine.test.ts             ciclo basico (primeiro sync, pull de outro aparelho, erro, offline)
+    engine.raceConditions.test.ts  escrita local concorrente com um ciclo em voo
   pwa/      intenção de chegada no app (docs seção 8): share target e atalho "Nova anotação"
   ui/
     components/  componentes de apresentação
@@ -55,12 +59,15 @@ src/
     shortcuts/   atalhos de teclado globais
     undo/        store do toast "Desfazer" (um nível, 6s)
     help/        store do painel de ajuda (atalho `?`)
-    hooks/       hooks genéricos (useMediaQuery, useNowTick/useToday, useTheme, useWarnBeforeUnload)
+    hooks/       hooks genéricos (useMediaQuery, useNowTick/useToday, useTheme,
+                 useWarnBeforeUnload, useDebouncedCallback — autosave entre digitar e o onBlur)
   lib/      utilitários genéricos
   styles/   tokens de design e CSS global
 public/
   icons/      ícones do manifest (.png gerados + .svg fonte, para regenerar sem depender de nada)
-e2e/        Playwright — 3 fluxos essenciais (docs seção 9) + pwa.spec.ts (fase 4)
+e2e/        Playwright — add-and-move-task/sync-cycle/triage.spec.ts (3 fluxos
+            essenciais, docs seção 9), pwa.spec.ts (fase 4), responsive.spec.ts e
+            task-detail-autosave.spec.ts (regressões pós-lançamento)
 apps-script/  backend no Google Apps Script (Code.gs + README.md de publicação)
   test/       harness Node que simula os globais do Apps Script, sem publicar nada
 ```
@@ -1101,7 +1108,7 @@ o Pages realmente publicou a versão nova.
   esse é o jeito confiável de não esperar.
 - **O push envia o documento inteiro**, não um delta. Simples e suficiente nesta
   escala; se o arquivo crescer muito, reavaliar.
-- **Bundle de produção em ~663 KB (205 KB gzip)**, acima do aviso padrão de
+- **Bundle de produção em ~668 KB (205 KB gzip)**, acima do aviso padrão de
   500 KB do Vite. Vem de dnd-kit + radix-ui + Dexie + React, tudo carregado de
   uma vez (sem `import()` dinâmico). Aceitável: desde a fase 4 é mesmo um PWA
   que faz cache do app inteiro no primeiro acesso (service worker,
@@ -1205,3 +1212,55 @@ componente a sobrescrevia).
 Esta é a última fase do plano original do documento. O app cobre as
 cinco fases (`docs/prompt-matriz-eisenhower.md`, seção 11): núcleo local,
 sincronização, triagem, PWA, e agora revisão e refinamento.
+
+### Pós-lançamento: uso real diário, seis correções
+
+Depois da fase 5 no ar, o app entrou em uso real diário (o usuário é tech
+manager, dia tomado por reuniões, captura muitas vezes só com o celular na
+mão — exatamente o perfil que o documento original descreve). Seis bugs
+reais chegaram por relato direto do usuário nessa janela, nenhum achado
+pelos testes das cinco fases — a suíte cobria os fluxos das docs, não as
+condições de corrida e de layout real que só uso contínuo expõe. Todos
+detalhados em "Decisões de arquitetura" acima; resumo aqui pra quem quer
+o retrato geral sem ler cada seção:
+
+1. **Tarefa perdida durante um ciclo de sync** — `applyMergedState` usava
+   `clear()+bulkAdd()` a partir de um snapshot do início do ciclo; uma
+   tarefa criada durante o ciclo (pull→push→verificação, tempo real de
+   rede) era apagada ao final. Corrigido com `bulkPut`. Pedido junto:
+   intervalo do timer periódico de 60s → 1h.
+2. **Movimentação desfeita ao mover uma tarefa já existente durante o
+   sync** — variante mais sutil do bug acima, que o `bulkPut` sozinho não
+   cobria (o id já estava em `merged`, só que com o quadrante antigo).
+   Corrigido relendo o estado local de novo bem antes de gravar e
+   mesclando com o resultado do ciclo (`applyAndConfirm`).
+3. **Clicar no título da tarefa concluía por engano** — `TaskRow` usava um
+   único `<label>` pro checkbox e pro título; pedido do usuário para
+   separar as duas ações (título abre detalhe, só o checkbox conclui).
+4. **Segundo item da triagem "não fazia nada"** — uma corrida entre o
+   clique/tecla e a movimentação assíncrona no Dexie deixava uma janela
+   onde um segundo clique disparava uma segunda movimentação concorrente,
+   cuja resolução tardia sobrescrevia o passo que a primeira tinha aberto.
+   Corrigido com uma trava (`busy`) em todos os pontos de entrada da
+   triagem.
+5. **Cabeçalho estourava a largura nos celulares comuns**, e isso vazava
+   pra página inteira (o painel de detalhe abria "cortado" mesmo sem
+   nenhum problema nele mesmo) — corrigido em duas rodadas: primeiro com
+   `flex-wrap` (funcionava, mas o usuário achou a quebra de linha feia),
+   depois revisado pra um rótulo de sincronização bem mais curto, voltando
+   a caber tudo numa linha só. `overflow-x: hidden` em `html`/`body` ficou
+   como rede de segurança permanente contra esse tipo de vazamento.
+6. **Texto do painel de detalhe se perdia sem o `onBlur` disparar** — os
+   campos só salvavam ao sair do campo, premissa que não sobrevive a uma
+   interrupção fora do controle da pessoa (app em segundo plano reclamado
+   pelo sistema, por exemplo). Corrigido com autosave debounced
+   (`useDebouncedCallback`, 1.5s de pausa), mantendo o `onBlur` como
+   salvamento imediato de qualquer jeito.
+
+**Padrão que se repete nos bugs 1, 2 e 4**: todos são uma escrita local
+concorrente com uma operação assíncrona mais longa (um ciclo de sync, uma
+movimentação de triagem) que lê um snapshot no início e grava de volta no
+fim - sem reler o estado logo antes de escrever, qualquer coisa que
+aconteça no meio do caminho é perdida ou desfeita silenciosamente, sem
+erro nenhum. Vale a pena desconfiar desse padrão em qualquer código novo
+que leia-processa-grava com uma espera real no meio.

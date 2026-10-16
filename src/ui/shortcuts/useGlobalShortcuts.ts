@@ -16,6 +16,7 @@ import { moveTaskWithUndo } from '@/ui/actions/moveTaskWithUndo.ts'
 import { runSync } from '@/sync/engine.ts'
 import { selectedTaskIdStore } from '@/ui/detail/store.ts'
 import { helpOpenStore } from '@/ui/help/store.ts'
+import { navigate as navigateToRoute } from '@/ui/router/store.ts'
 import { triageOpenStore } from '@/ui/triage/store.ts'
 import { undoPending } from '@/ui/undo/store.ts'
 
@@ -124,6 +125,35 @@ export function useGlobalShortcuts(): void {
       if (event.key === 't' || event.key === 'T') {
         event.preventDefault()
         triageOpenStore.set(true)
+        return
+      }
+
+      // Extensão "Anotações" (docs/prompt-anotacoes.md seção 3.2, desktop):
+      // A nova anotação, L lista, / busca. So fazem sentido com teclado de
+      // verdade (desktop) - no celular o menu inferior cobre a mesma acao,
+      // mas nada aqui impede de funcionar la tambem se um teclado externo
+      // estiver conectado.
+      if (event.key === 'a' || event.key === 'A') {
+        event.preventDefault()
+        navigateToRoute({ screen: 'note-editor', noteId: null })
+        return
+      }
+
+      if (event.key === 'l' || event.key === 'L') {
+        event.preventDefault()
+        navigateToRoute({ screen: 'notes-list' })
+        return
+      }
+
+      if (event.key === '/') {
+        event.preventDefault()
+        navigateToRoute({ screen: 'notes-list' })
+        // A busca so existe depois da tela de anotacoes montar - espera o
+        // proximo ciclo de render em vez de tentar focar algo que ainda
+        // nao existe no DOM neste mesmo evento.
+        requestAnimationFrame(() => {
+          document.querySelector<HTMLElement>('#notes-search')?.focus()
+        })
         return
       }
 

@@ -53,14 +53,28 @@ export default defineConfig({
             purpose: 'maskable',
           },
         ],
-        // "Nova anotação" (docs secao 8): abre direto na captura. A query
-        // `?captura=1` e lida em src/pwa/useIncomingIntent.ts, que foca o
-        // campo (e com o foco, o teclado do celular abre sozinho).
+        // Dois atalhos de app, com nomes que não se confundem
+        // (`docs/prompt-anotacoes.md` seção 3.4 - "ideia" e "anotação" são
+        // conceitos diferentes, seção 2): "Nova ideia" abre direto na
+        // captura rápida da caixa de entrada (query `?captura=1`, lida em
+        // src/pwa/useIncomingIntent.ts, que foca o campo - com o foco, o
+        // teclado do celular abre sozinho). "Nova anotação" abre direto no
+        // editor de anotação (rota por hash, lida em src/ui/router/ - não
+        // precisa de query nem de código novo de intenção, o hash já é a
+        // própria rota). O nome do atalho original era "Nova anotação" e
+        // na verdade sempre foi a captura de IDEIA - renomeado aqui junto
+        // com a extensão, pelo mesmo motivo que a seção 3.4 pede.
         shortcuts: [
+          {
+            name: 'Nova ideia',
+            short_name: 'Nova ideia',
+            url: `${BASE_PATH}?captura=1`,
+            icons: [{ src: `${BASE_PATH}icons/shortcut-capture.png`, sizes: '192x192', type: 'image/png' }],
+          },
           {
             name: 'Nova anotação',
             short_name: 'Nova anotação',
-            url: `${BASE_PATH}?captura=1`,
+            url: `${BASE_PATH}#/anotacoes/nova`,
             icons: [{ src: `${BASE_PATH}icons/shortcut-capture.png`, sizes: '192x192', type: 'image/png' }],
           },
         ],

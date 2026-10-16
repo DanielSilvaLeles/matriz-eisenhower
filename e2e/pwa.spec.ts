@@ -8,11 +8,14 @@ const manifestSchema = z.object({
   display: z.string(),
   icons: z.array(z.object({ sizes: z.string() })),
   share_target: z.object({ method: z.string() }),
+  shortcuts: z.array(z.object({ name: z.string(), url: z.string() })),
 })
 
 /**
  * PWA (docs secao 8): manifest valido no subcaminho certo, app funciona
- * offline depois da primeira visita, share target e atalho "Nova anotação"
+ * offline depois da primeira visita, share target e atalho "Nova ideia"
+ * (renomeado na extensão "Anotações" - era "Nova anotação", mas sempre foi
+ * a captura rápida de ideia; ver `docs/prompt-anotacoes.md` seção 3.4)
  * (docs secao 9: "teste de instalação do PWA no subcaminho - é onde esse
  * tipo de configuração costuma falhar").
  *
@@ -42,6 +45,13 @@ test('manifest valido, com start_url e scope no subcaminho certo', async ({ page
   expect(sizes).toContain('192x192')
   expect(sizes).toContain('512x512')
   expect(manifest.share_target.method).toBe('GET')
+
+  // Extensão "Anotações" (docs/prompt-anotacoes.md seção 3.4): dois
+  // atalhos com nomes que não se confundem - "ideia" é a captura rápida
+  // que já existia (renomeada), "anotação" é o editor de texto longo novo.
+  const shortcutByName = new Map(manifest.shortcuts.map((shortcut) => [shortcut.name, shortcut.url]))
+  expect(shortcutByName.get('Nova ideia')).toBe('/matriz-eisenhower/?captura=1')
+  expect(shortcutByName.get('Nova anotação')).toBe('/matriz-eisenhower/#/anotacoes/nova')
 })
 
 test('indicador mostra "Offline" na hora, sem esperar uma tentativa de sync', async ({
@@ -91,7 +101,7 @@ test('share target: title+text+url viram UMA tarefa so na caixa de entrada', asy
   await expect(page).toHaveURL(/\/matriz-eisenhower\/$/u)
 })
 
-test('atalho "Nova anotação" (?captura=1) foca o campo de captura', async ({ page }) => {
+test('atalho "Nova ideia" (?captura=1) foca o campo de captura', async ({ page }) => {
   await page.goto('/?captura=1')
 
   await expect(page.getByPlaceholder('Capturar uma ideia…').first()).toBeFocused()

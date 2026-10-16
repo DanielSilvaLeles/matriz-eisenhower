@@ -7,10 +7,11 @@ import { restoreTaskFromHistory } from '@/db/tasksRepo.lifecycle.ts'
 import type { QuadrantId } from '@/domain/quadrant.ts'
 import type { Task } from '@/domain/schema.ts'
 import { cn } from '@/lib/utils.ts'
+import { NotesTrashSection } from '@/ui/notes/NotesTrashSection.tsx'
 import { MoveToMenu } from './MoveToMenu.tsx'
 import { WeeklyReviewSection } from './WeeklyReviewSection.tsx'
 
-type Tab = 'historico' | 'revisao'
+type Tab = 'historico' | 'revisao' | 'notas-excluidas'
 
 function statusLabel(status: Task['status']): string {
   return status === 'archived' ? 'Eliminada' : 'Concluída'
@@ -79,8 +80,8 @@ export function HistoryPanel() {
           </div>
 
           <Dialog.Description className="sr-only">
-            Tarefas concluídas e eliminadas, com opção de restaurar, e a
-            revisão semanal.
+            Tarefas concluídas e eliminadas, anotações excluídas, com opção
+            de restaurar, e a revisão semanal.
           </Dialog.Description>
 
           <div className="mb-3 flex gap-1.5" role="tablist">
@@ -116,12 +117,30 @@ export function HistoryPanel() {
             >
               Revisão semanal
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'notas-excluidas'}
+              onClick={() => {
+                setTab('notas-excluidas')
+              }}
+              className={cn(
+                'rounded-md px-2.5 py-1 text-[13px]',
+                tab === 'notas-excluidas'
+                  ? 'bg-surface-muted font-medium text-text'
+                  : 'text-text-muted hover:bg-surface-muted',
+              )}
+            >
+              Anotações excluídas
+            </button>
           </div>
 
           {tab === 'revisao' ? (
             <div className="min-h-0 flex-1 overflow-y-auto">
               <WeeklyReviewSection />
             </div>
+          ) : tab === 'notas-excluidas' ? (
+            <NotesTrashSection />
           ) : (
             <>
               <input

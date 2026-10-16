@@ -17,6 +17,9 @@ const SHORTCUTS: readonly ShortcutEntry[] = [
   { keys: ['Enter'], description: 'Abrir o detalhe da tarefa focada' },
   { keys: ['T'], description: 'Abrir a triagem da caixa de entrada' },
   { keys: ['S'], description: 'Sincronizar agora' },
+  { keys: ['A'], description: 'Nova anotação' },
+  { keys: ['L'], description: 'Abrir a lista de anotações' },
+  { keys: ['/'], description: 'Buscar nas anotações' },
   { keys: ['Ctrl', 'Z'], description: 'Desfazer a última ação' },
   { keys: ['?'], description: 'Abrir esta ajuda' },
 ]

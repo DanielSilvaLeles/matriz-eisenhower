@@ -1355,10 +1355,11 @@ que leia-processa-grava com uma espera real no meio.
 
 ### Extensão "Anotações + menu inferior" (`docs/prompt-anotacoes.md`)
 
-Trabalho feito na branch `feature/anotacoes` (nunca mesclada/publicada por
-este agente - ver `docs/RELATORIO-ANOTACOES.md` para o relatório completo
-e o roteiro de teste manual). Três fases da seção 10 do prompt, mais o
-item 8 (build para dois repositórios):
+Trabalho feito na branch `feature/anotacoes`, depois mesclada (fast-forward)
+e publicada em `main` a pedido explícito do usuário - ver
+`docs/RELATORIO-ANOTACOES.md` para o relatório completo e o roteiro de
+teste manual. Três fases da seção 10 do prompt, mais o item 8 (build para
+dois repositórios):
 
 **Fase 1 (núcleo local + menu inferior):** tabela `notes` nova + migration
 testada com fixture v1; roteamento por hash próprio (`#/anotacoes`,
@@ -1386,7 +1387,7 @@ chave `notes`); "Exportar anotações em Markdown".
 **Item 8 (build para dois repositórios):** ver "Build para dois
 repositórios" na seção Publicação, acima.
 
-**Dois bugs reais encontrados, nenhum por teste que já existia antes
+**Três bugs reais encontrados, nenhum por teste que já existia antes
 desta extensão:**
 
 1. **`isValidData_` (Code.gs) rejeitava um `matriz.json` existente sem a
@@ -1401,6 +1402,31 @@ desta extensão:**
    assets que o Vite injeta (CSS, manifest) seguiam o `base` do build
    automaticamente. Achado compilando com um `base` diferente antes de
    mexer em qualquer config real. Corrigido com `%BASE_URL%`.
+3. **Relatado pelo usuário em produção, depois do merge**: tocar em
+   "Ideia" na barra inferior do celular não abria o teclado.
+   `IdeiaSheet.tsx` reusa `CaptureField` (o mesmo `<input>` da caixa de
+   entrada), e o comentário original supunha que o Radix focaria esse
+   `<input>` sozinho ao abrir - **suposição nunca verificada de verdade**:
+   sem nenhum `autoFocus` nativo dentro do conteúdo, o Radix foca o
+   próprio `Dialog.Content` (um `<div>`), não o primeiro campo. Diferente
+   de `NoteEditorForm.tsx` (que tem `autoFocus` explícito no `<textarea>`)
+   e do atalho `N`/botão "+" do desktop (`useGlobalShortcuts.ts`/
+   `DesktopNav.tsx`, que já focam o campo por id manualmente) - os dois
+   únicos lugares que, por já precisarem contornar esse mesmo
+   comportamento do Radix, deveriam ter servido de aviso. Não deu para
+   colocar `autoFocus` direto no `<input>` de `CaptureField` porque ele é
+   reusado em `InboxPanel.tsx` (painel sempre visível do desktop) e
+   `MobileInboxSheet.tsx` (lista da caixa de entrada) - nos dois, abrir
+   não deve roubar o foco. Corrigido com `onOpenAutoFocus` no
+   `Dialog.Content` do `IdeiaSheet` (`event.preventDefault()` + foco
+   manual por id, mesmo padrão já usado em `DesktopNav.tsx`). Teste de
+   regressão em `e2e/notes.spec.ts` ("menu inferior do celular...": clica
+   em "Ideia", confirma `toBeFocused()`) - confirmado que falha sem a
+   correção (`"inactive"`, não focado) e passa com ela. **Lição: um
+   comentário dizendo "o Radix faz isso sozinho" nunca tinha sido
+   confirmado com um teste ou no celular de verdade - só parecia
+   verdade por nunca ter sido o próprio campo de texto a abrir primeiro
+   num fluxo testado.**
 
 Gate completo (lint, typecheck, 423 testes unitários, 24 cenários do
 harness do Apps Script, 28 testes Playwright) verde ao final de cada

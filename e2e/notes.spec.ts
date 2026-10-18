@@ -127,6 +127,14 @@ test('menu inferior do celular: uma única barra, Anotar abre o editor focado', 
   // nunca duas barras empilhadas (docs/prompt-anotacoes.md secao 3.1).
   await expect(page.getByPlaceholder('Capturar uma ideia…')).toHaveCount(0)
 
+  // "Ideia" abre a folha com o campo já focado - bug real relatado pelo
+  // usuário (o teclado do celular não abria): o Radix, sem nenhum
+  // `autoFocus` nativo dentro do conteúdo, focava o próprio
+  // `Dialog.Content`, não o `<input>` (ver IdeiaSheet.tsx).
+  await nav.getByRole('button', { name: 'Ideia' }).click()
+  await expect(page.getByPlaceholder('Capturar uma ideia…')).toBeFocused()
+  await page.keyboard.press('Escape')
+
   await nav.getByRole('button', { name: 'Nova anotação' }).click()
   await expect(page.getByPlaceholder('Comece a digitar…')).toBeFocused()
 

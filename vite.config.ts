@@ -70,20 +70,19 @@ export default defineConfig({
           },
         ],
         // Dois atalhos de app, com nomes que não se confundem
-        // (`docs/prompt-anotacoes.md` seção 3.4 - "ideia" e "anotação" são
-        // conceitos diferentes, seção 2): "Nova ideia" abre direto na
-        // captura rápida da caixa de entrada (query `?captura=1`, lida em
+        // (`docs/prompt-anotacoes.md` seção 3.4 - "tarefa" (renomeado de
+        // "ideia" a pedido do usuário) e "anotação" são conceitos
+        // diferentes, seção 2): "Nova tarefa" abre direto na captura
+        // rápida da caixa de entrada (query `?captura=1`, lida em
         // src/pwa/useIncomingIntent.ts, que foca o campo - com o foco, o
         // teclado do celular abre sozinho). "Nova anotação" abre direto no
         // editor de anotação (rota por hash, lida em src/ui/router/ - não
         // precisa de query nem de código novo de intenção, o hash já é a
-        // própria rota). O nome do atalho original era "Nova anotação" e
-        // na verdade sempre foi a captura de IDEIA - renomeado aqui junto
-        // com a extensão, pelo mesmo motivo que a seção 3.4 pede.
+        // própria rota).
         shortcuts: [
           {
-            name: 'Nova ideia',
-            short_name: 'Nova ideia',
+            name: 'Nova tarefa',
+            short_name: 'Nova tarefa',
             url: `${BASE_PATH}?captura=1`,
             icons: [{ src: `${BASE_PATH}icons/shortcut-capture.png`, sizes: '192x192', type: 'image/png' }],
           },

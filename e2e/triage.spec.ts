@@ -16,7 +16,7 @@ test('triagem por teclado: manda para Agendar, pula a data, e chega na caixa zer
   page,
 }) => {
   const main = page.locator('main')
-  const captura = main.getByPlaceholder('Capturar uma ideia…')
+  const captura = main.getByPlaceholder('Capturar uma tarefa…')
 
   await captura.fill('Responder e-mail do cliente')
   await captura.press('Enter')
@@ -51,7 +51,7 @@ test('triagem por teclado: manda para Agendar, pula a data, e chega na caixa zer
 
 test('"Me ajude a decidir" sugere o quadrante e move ao confirmar', async ({ page }) => {
   const main = page.locator('main')
-  const captura = main.getByPlaceholder('Capturar uma ideia…')
+  const captura = main.getByPlaceholder('Capturar uma tarefa…')
 
   await captura.fill('Eliminar reuniao sem pauta')
   await captura.press('Enter')
@@ -78,7 +78,7 @@ test('"Me ajude a decidir" sugere o quadrante e move ao confirmar', async ({ pag
 
 test('editar o titulo durante a triagem (tecla E)', async ({ page }) => {
   const main = page.locator('main')
-  const captura = main.getByPlaceholder('Capturar uma ideia…')
+  const captura = main.getByPlaceholder('Capturar uma tarefa…')
 
   await captura.fill('titulo errado')
   await captura.press('Enter')
@@ -105,7 +105,7 @@ test('triagem de dois itens em sequencia: o segundo item avanca de verdade', asy
   // segundo item da triagem..."), mas nenhum teste cobria sequer o fluxo
   // normal de DOIS itens - so um por vez. Este teste fecha essa lacuna.
   const main = page.locator('main')
-  const captura = main.getByPlaceholder('Capturar uma ideia…')
+  const captura = main.getByPlaceholder('Capturar uma tarefa…')
 
   await captura.fill('Primeiro item')
   await captura.press('Enter')
@@ -141,7 +141,7 @@ test('digitar dois destinos em sequencia para o mesmo item so move uma vez', asy
   // duas movimentacoes concorrentes para o mesmo item - so a primeira vale,
   // a segunda e ignorada enquanto o passo estiver "ocupado".
   const main = page.locator('main')
-  const captura = main.getByPlaceholder('Capturar uma ideia…')
+  const captura = main.getByPlaceholder('Capturar uma tarefa…')
 
   await captura.fill('Item unico')
   await captura.press('Enter')

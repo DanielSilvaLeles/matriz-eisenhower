@@ -20,7 +20,7 @@ export interface MobileMatrixViewProps {
  * (ver App.tsx, que decide via useMediaQuery - nao ha deteccao de largura
  * so por CSS, para nao arriscar duas arvores montadas ao mesmo tempo).
  *
- * A captura fixa na base foi substituída pelo menu inferior "Ideia"/
+ * A captura fixa na base foi substituída pelo menu inferior "Tarefa"/
  * "Anotar" (`docs/prompt-anotacoes.md` seção 3.1 - `MobileQuickActions.tsx`,
  * montado por `App.tsx`) - nunca as duas barras empilhadas, por isso este
  * componente não renderiza mais nenhuma barra fixa própria, só reserva o

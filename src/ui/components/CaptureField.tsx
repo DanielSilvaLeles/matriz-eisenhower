@@ -75,7 +75,7 @@ export function CaptureField() {
           setValue(event.target.value)
         }}
         onPaste={handlePaste}
-        placeholder="Capturar uma ideia…"
+        placeholder="Capturar uma tarefa…"
         autoComplete="off"
         className="min-w-0 flex-1 rounded-md border border-border bg-surface px-2.5 py-2 text-[13px] text-text placeholder:text-text-subtle focus:outline-none focus-visible:border-focus"
       />

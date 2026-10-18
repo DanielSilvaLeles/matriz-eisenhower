@@ -99,7 +99,7 @@ export function InboxPanel({ collapsed, onCollapsedChange }: InboxPanelProps) {
       >
         {tasks.length === 0 ? (
           <p className="pt-1 text-xs text-text-subtle">
-            Vazia. Capture uma ideia acima ou pressione{' '}
+            Vazia. Capture uma tarefa acima ou pressione{' '}
             <kbd className="rounded border border-border px-1 py-0.5 font-mono text-[10px]">
               N
             </kbd>{' '}

@@ -99,8 +99,8 @@ export type Person = z.infer<typeof personSchema>
 
 /**
  * Anotação (extensão "Anotações + menu inferior", `docs/prompt-anotacoes.md`
- * seção 6.1): texto livre de uma reunião/conversa, diferente de uma "ideia"
- * da caixa de entrada - `title` é opcional (a primeira linha serve de
+ * seção 6.1): texto livre de uma reunião/conversa, diferente de uma tarefa
+ * capturada rápido na caixa de entrada - `title` é opcional (a primeira linha serve de
  * título quando ausente, calculado na UI, não gravado em dobro aqui).
  * `created_at` nunca muda depois de criada (seção 5: "data de inclusão").
  * `deleted`/`deleted_at` dão a lixeira de 30 dias (mesmo espírito do

@@ -1428,6 +1428,25 @@ desta extensão:**
    verdade por nunca ter sido o próprio campo de texto a abrir primeiro
    num fluxo testado.**
 
+**Mudança pedida pelo usuário, depois do bug #3 acima**: "Ideia" renomeado
+para "Tarefa" em toda a interface (botões, placeholder "Capturar uma
+tarefa…", folha "Nova tarefa", atalho do PWA) - `IdeiaSheet.tsx` virou
+`TarefaSheet.tsx` (o bug #3 acima, descrito com os nomes antigos, já foi
+corrigido nesse arquivo antes da renomeação). O botão "Tarefa" na barra
+inferior do celular também ganhou o mesmo destaque (círculo elevado,
+sombra) que "Anotar" já tinha, numa cor própria - token novo
+`--color-task`/`--color-task-ink` (`src/styles/tokens.css`, verde, 5.43:1
+tema claro / 4.72:1 tema escuro com texto branco, coberto em
+`tokens.contrast.test.ts`). **Não** reusa `--color-q1` (também verde):
+a seção 8 do prompt original reserva as cores de quadrante exclusivamente
+para a matriz, e esse botão não é parte dela. Essa mudança também
+**substitui** a regra original da seção 8 ("o botão central 'Anotar' é o
+único elemento de destaque forte na barra") - agora os dois botões de
+criar conteúdo novo (`Tarefa` verde, `Anotar` azul) têm destaque, por
+pedido explícito. `docs/prompt-anotacoes.md` não foi reescrito (é o
+pedido histórico original, não um documento vivo) - as decisões de UI
+atuais ficam registradas aqui.
+
 Gate completo (lint, typecheck, 423 testes unitários, 24 cenários do
 harness do Apps Script, 28 testes Playwright) verde ao final de cada
 fase, mais uma rodada extra validando um build com `VITE_BASE_PATH`/

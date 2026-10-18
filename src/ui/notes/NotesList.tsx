@@ -194,7 +194,7 @@ export function NotesList({ selectedId }: NotesListProps) {
           <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
             <p className="text-[13px] font-medium text-text">Nenhuma anotação ainda.</p>
             <p className="max-w-xs text-[12px] text-text-subtle">
-              Uma <strong>ideia</strong> é uma linha rápida pra triar depois na caixa de entrada. Uma{' '}
+              Uma <strong>tarefa</strong> é uma linha rápida pra triar depois na caixa de entrada. Uma{' '}
               <strong>anotação</strong> é o texto de uma reunião ou conversa, pra consultar depois.
             </p>
             <button

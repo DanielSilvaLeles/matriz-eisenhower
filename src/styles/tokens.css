@@ -51,6 +51,16 @@
   --color-danger: #c23a3a;
   --color-danger-ink: #ffffff;
 
+  /*
+   * Destaque do botão "Tarefa" na barra inferior do celular (pedido do
+   * usuário: mesmo tratamento do botão "Anotar", em verde) - token próprio,
+   * não --color-q1: a seção 8 do prompt original reserva as cores de
+   * quadrante exclusivamente para a matriz, para nada fora dela "parecer
+   * outro quadrante".
+   */
+  --color-task: #0f7a3b;
+  --color-task-ink: #ffffff;
+
   /* Quadrantes - tema claro */
   --color-q1: #0f9755;
   --color-q1-ink: #0a6b3b;
@@ -102,6 +112,9 @@
   --color-accent-ink: #ffffff;
   --color-danger: #c23a3a;
   --color-danger-ink: #ffffff;
+
+  --color-task: #11853f;
+  --color-task-ink: #ffffff;
 
   --color-q1: #34c77f;
   --color-q1-ink: #5bd99a;

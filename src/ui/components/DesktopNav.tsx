@@ -4,16 +4,17 @@ import { navigate } from '@/ui/router/store.ts'
 import { useRoute } from '@/ui/router/useRoute.ts'
 import { cn } from '@/lib/utils.ts'
 
-function focusIdeiaField(): void {
+function focusTarefaField(): void {
   document.querySelector<HTMLElement>(`#${INBOX_CAPTURE_FIELD_ID}`)?.focus()
 }
 
 /**
  * Navegação do desktop (`docs/prompt-anotacoes.md` seção 3.2): abas
- * Matriz|Anotações + botões "+ Ideia"/"+ Anotação". "+ Ideia" não abre
- * nenhuma folha nova - o desktop já tem o campo de captura sempre visível
- * na caixa de entrada (`InboxPanel.tsx`); o botão só foca esse campo (a
- * mesma ação do atalho `N`), sem duplicar interface.
+ * Matriz|Anotações + botões "+ Tarefa"/"+ Anotação" ("Ideia" renomeado
+ * para "Tarefa" a pedido do usuário). "+ Tarefa" não abre nenhuma folha
+ * nova - o desktop já tem o campo de captura sempre visível na caixa de
+ * entrada (`InboxPanel.tsx`); o botão só foca esse campo (a mesma ação do
+ * atalho `N`), sem duplicar interface.
  */
 export function DesktopNav() {
   const route = useRoute()
@@ -55,11 +56,11 @@ export function DesktopNav() {
 
       <button
         type="button"
-        onClick={focusIdeiaField}
+        onClick={focusTarefaField}
         className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[12px] text-text-muted hover:bg-surface-muted hover:text-text"
       >
         <Plus className="size-3.5" aria-hidden="true" />
-        Ideia
+        Tarefa
         <kbd className="ml-0.5 text-[10px] text-text-subtle">N</kbd>
       </button>
       <button

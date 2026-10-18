@@ -82,7 +82,7 @@ export function MobileInboxSheet({ open, onClose }: MobileInboxSheetProps) {
           <ul data-task-list="inbox" className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
             {tasks.length === 0 ? (
               <p className="px-1 pt-2 text-sm text-text-subtle">
-                Vazia. Capture uma ideia acima.
+                Vazia. Capture uma tarefa acima.
               </p>
             ) : (
               tasks.map((task) => (

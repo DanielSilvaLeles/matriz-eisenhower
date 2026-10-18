@@ -1,11 +1,11 @@
-import { Home, Inbox, NotebookPen, StickyNote } from 'lucide-react'
+import { Home, ListTodo, NotebookPen, StickyNote } from 'lucide-react'
 import { useInboxCount } from '@/db/hooks.ts'
 import { navigate } from '@/ui/router/store.ts'
 import { useRoute } from '@/ui/router/useRoute.ts'
 import { cn } from '@/lib/utils.ts'
 
 export interface BottomNavProps {
-  onOpenIdeia: () => void
+  onOpenTarefa: () => void
 }
 
 /**
@@ -14,8 +14,16 @@ export interface BottomNavProps {
  * nunca as duas empilhadas. Só existe abaixo do breakpoint `sm`, igual ao
  * resto do layout mobile - App.tsx decide em qual rota ela aparece (nunca
  * no editor de anotação em tela cheia, que tem sua própria barra).
+ *
+ * "Ideia" foi renomeado para "Tarefa" a pedido do usuário, e ganhou o
+ * mesmo destaque (círculo elevado) que "Anotar" já tinha - a seção 8 do
+ * prompt original ("o botão central 'Anotar' é o único elemento de
+ * destaque forte na barra") deixou de valer por esse pedido explícito:
+ * agora os dois botões de criar conteúdo novo têm destaque, cada um com
+ * sua própria cor (`--color-task` verde para "Tarefa", `--color-accent`
+ * para "Anotar") - ver CLAUDE.md.
  */
-export function BottomNav({ onOpenIdeia }: BottomNavProps) {
+export function BottomNav({ onOpenTarefa }: BottomNavProps) {
   const route = useRoute()
   const inboxCount = useInboxCount()
   const isMatrix = route.screen === 'matrix'
@@ -48,14 +56,15 @@ export function BottomNav({ onOpenIdeia }: BottomNavProps) {
 
       <button
         type="button"
-        onClick={onOpenIdeia}
-        className="flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] text-text-muted"
+        onClick={onOpenTarefa}
+        className="relative -mt-3 flex flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] text-text-muted"
       >
-        <Inbox className="size-5" aria-hidden="true" />
-        Ideia
+        <span className="flex size-11 items-center justify-center rounded-full bg-task text-task-ink shadow-md">
+          <ListTodo className="size-5" aria-hidden="true" />
+        </span>
+        Tarefa
       </button>
 
-      {/* Único destaque forte da barra (docs secao 8) - o resto fica em neutros. */}
       <button
         type="button"
         onClick={() => {

@@ -5,7 +5,7 @@ import { expect, test } from './fixtures.ts'
  * critérios de aceite da seção 11 que dá pra automatizar: criar uma
  * anotação e ela aparecer na lista com texto/data, texto digitado
  * sobrevive a uma recarga sem nunca sair do campo (mesma técnica de
- * `e2e/task-detail-autosave.spec.ts`), "Ideia" e "Anotar" nunca se
+ * `e2e/task-detail-autosave.spec.ts`), "Tarefa" e "Anotar" nunca se
  * confundem, busca funciona.
  */
 
@@ -40,21 +40,21 @@ test('texto digitado numa anotação nova sobrevive a uma recarga sem nunca sair
   await expect(page.getByPlaceholder('Comece a digitar…')).toHaveValue('Nota que não pode se perder')
 })
 
-test('"Ideia" e "Anotar" nunca se confundem: um vai pra caixa de entrada, o outro vira anotação', async ({
+test('"Tarefa" e "Anotar" nunca se confundem: um vai pra caixa de entrada, o outro vira anotação', async ({
   page,
 }) => {
   const main = page.locator('main')
 
-  await page.getByRole('button', { name: 'Ideia' }).click()
-  await main.getByPlaceholder('Capturar uma ideia…').fill('Cobrar fornecedor X')
-  await main.getByPlaceholder('Capturar uma ideia…').press('Enter')
+  await page.getByRole('button', { name: 'Tarefa' }).click()
+  await main.getByPlaceholder('Capturar uma tarefa…').fill('Cobrar fornecedor X')
+  await main.getByPlaceholder('Capturar uma tarefa…').press('Enter')
   await expect(main.locator('[data-task-list="inbox"]').getByText('Cobrar fornecedor X')).toBeVisible()
 
   await page.getByRole('button', { name: 'Anotação' }).click()
   await page.getByPlaceholder('Comece a digitar…').fill('Texto da reunião de hoje')
   await expect(page.getByText('Salvo')).toBeVisible()
 
-  // A ideia virou tarefa na caixa de entrada, NUNCA uma anotação - e a
+  // A tarefa foi pra caixa de entrada, NUNCA uma anotação - e a
   // anotação não aparece na caixa de entrada.
   await expect(main.locator('[data-task-list="inbox"]').getByText('Texto da reunião de hoje')).toHaveCount(0)
 })
@@ -119,20 +119,20 @@ test('menu inferior do celular: uma única barra, Anotar abre o editor focado', 
   const nav = page.getByRole('navigation', { name: 'Navegação principal' })
   await expect(nav).toBeVisible()
   await expect(nav.getByRole('button', { name: 'Matriz' })).toBeVisible()
-  await expect(nav.getByRole('button', { name: 'Ideia' })).toBeVisible()
+  await expect(nav.getByRole('button', { name: 'Tarefa' })).toBeVisible()
   await expect(nav.getByRole('button', { name: 'Nova anotação' })).toBeVisible()
   await expect(nav.getByRole('button', { name: 'Anotações' })).toBeVisible()
 
   // A antiga barra de captura fixa (docs SPEC secao 5.7) nao existe mais -
   // nunca duas barras empilhadas (docs/prompt-anotacoes.md secao 3.1).
-  await expect(page.getByPlaceholder('Capturar uma ideia…')).toHaveCount(0)
+  await expect(page.getByPlaceholder('Capturar uma tarefa…')).toHaveCount(0)
 
-  // "Ideia" abre a folha com o campo já focado - bug real relatado pelo
+  // "Tarefa" abre a folha com o campo já focado - bug real relatado pelo
   // usuário (o teclado do celular não abria): o Radix, sem nenhum
   // `autoFocus` nativo dentro do conteúdo, focava o próprio
-  // `Dialog.Content`, não o `<input>` (ver IdeiaSheet.tsx).
-  await nav.getByRole('button', { name: 'Ideia' }).click()
-  await expect(page.getByPlaceholder('Capturar uma ideia…')).toBeFocused()
+  // `Dialog.Content`, não o `<input>` (ver TarefaSheet.tsx).
+  await nav.getByRole('button', { name: 'Tarefa' }).click()
+  await expect(page.getByPlaceholder('Capturar uma tarefa…')).toBeFocused()
   await page.keyboard.press('Escape')
 
   await nav.getByRole('button', { name: 'Nova anotação' }).click()

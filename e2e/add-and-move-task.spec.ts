@@ -13,7 +13,7 @@ import { expect, test } from './fixtures.ts'
  * (fase 1c, secao 5.7) tambem existe na mesma pagina - so escondido por CSS
  * (`sm:hidden`), nao removido do DOM. Por isso os locators ficam escopados
  * dentro de <main>, que e so o layout desktop; sem isso, "Adicionar tarefa"
- * e "Capturar uma ideia" bateriam em dois elementos (um por layout).
+ * e "Capturar uma tarefa" bateriam em dois elementos (um por layout).
  */
 
 test('carrega direto na matriz, sem tela intermediaria', async ({ page }) => {
@@ -54,7 +54,7 @@ test('move a tarefa focada pelo atalho de teclado, com desfazer', async ({ page 
 
 test('arrasta uma tarefa da caixa de entrada para um quadrante', async ({ page }) => {
   const main = page.locator('main')
-  const captura = main.getByPlaceholder('Capturar uma ideia…')
+  const captura = main.getByPlaceholder('Capturar uma tarefa…')
   await captura.fill('Item da caixa de entrada')
   await captura.press('Enter')
 

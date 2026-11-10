@@ -1,5 +1,8 @@
+import { isFavorite } from '@/domain/favorite.ts'
 import { highlightSegments } from '@/domain/noteSearch.ts'
 import type { Note } from '@/domain/schema.ts'
+import { toggleNoteFavorite } from '@/ui/actions/toggleFavorite.ts'
+import { FavoriteButton } from '@/ui/components/FavoriteButton.tsx'
 import { navigate } from '@/ui/router/store.ts'
 import { cn } from '@/lib/utils.ts'
 
@@ -49,9 +52,14 @@ export interface NoteListRowProps {
 export function NoteListRow({ note, query, active }: NoteListRowProps) {
   const titleText = note.title ?? note.body.split(/\r\n|\r|\n/u)[0] ?? ''
   const edited = note.updated_at !== note.created_at
+  const favorite = isFavorite(note)
 
+  // A estrela fica FORA do botao da linha (botao dentro de botao e HTML
+  // invalido) - irma dele, no canto superior direito. Sempre visivel quando
+  // marcada; desmarcada, so em hover/foco no desktop (no celular marca-se
+  // pelo editor, para nao virar alvo invisivel no canto da linha).
   return (
-    <li>
+    <li className="group relative">
       <button
         type="button"
         onClick={() => {
@@ -59,7 +67,7 @@ export function NoteListRow({ note, query, active }: NoteListRowProps) {
         }}
         aria-current={active ? 'true' : undefined}
         className={cn(
-          'flex w-full flex-col gap-1 rounded-md px-2.5 py-2 text-left',
+          'flex w-full flex-col gap-1 rounded-md py-2 pr-9 pl-2.5 text-left',
           active ? 'bg-surface-muted' : 'hover:bg-surface-muted',
         )}
       >
@@ -79,6 +87,17 @@ export function NoteListRow({ note, query, active }: NoteListRowProps) {
           {edited ? <span>editada {formatEditedTime(note.updated_at)}</span> : null}
         </div>
       </button>
+      <FavoriteButton
+        favorite={favorite}
+        onToggle={() => {
+          toggleNoteFavorite(note)
+        }}
+        className={cn(
+          'absolute top-1.5 right-1.5 size-7',
+          !favorite &&
+            'max-sm:hidden opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100',
+        )}
+      />
     </li>
   )
 }

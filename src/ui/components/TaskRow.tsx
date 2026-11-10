@@ -5,11 +5,14 @@ import { useState } from 'react'
 import { buildCalendarLink } from '@/domain/calendarLink.ts'
 import { dateBadgeFor, formatDateShortBr, showsMissingDateWarning } from '@/domain/dateStatus.ts'
 import { buildDelegationMessage } from '@/domain/delegationMessage.ts'
+import { isFavorite } from '@/domain/favorite.ts'
 import { prefersReducedMotion } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { QuadrantId } from '@/domain/quadrant.ts'
 import type { Task } from '@/domain/schema.ts'
+import { toggleTaskFavorite } from '@/ui/actions/toggleFavorite.ts'
 import { selectedTaskIdStore } from '@/ui/detail/store.ts'
+import { FavoriteButton } from './FavoriteButton.tsx'
 import { MoveToMenu } from './MoveToMenu.tsx'
 
 export interface TaskRowProps {
@@ -80,6 +83,7 @@ export function TaskRow({ task, quadrant, today, accentClass, onToggle, onMove }
   const badge = dateBadgeFor(quadrant, task.date, today)
   const missingDate = showsMissingDateWarning(quadrant, task.date)
   const status = delegationStatus(task)
+  const favorite = isFavorite(task)
 
   return (
     <li
@@ -169,6 +173,28 @@ export function TaskRow({ task, quadrant, today, accentClass, onToggle, onMove }
           </span>
         </button>
       </div>
+
+      {/*
+       * Estrela: sempre visivel quando marcada (e o que identifica a
+       * favorita na lista). Desmarcada, aparece so em hover/foco no
+       * desktop, como os outros icones da linha - e no celular nem e
+       * renderizada como alvo invisivel (evita favoritar sem querer ao
+       * tocar no canto da linha); la, marca-se pelo painel de detalhe.
+       */}
+      {favorite || !isDone ? (
+        <FavoriteButton
+          favorite={favorite}
+          onToggle={() => {
+            toggleTaskFavorite(task)
+          }}
+          itemLabel={task.title}
+          className={cn(
+            'size-6',
+            !favorite &&
+              'max-sm:hidden opacity-0 transition-opacity duration-150 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100',
+          )}
+        />
+      ) : null}
 
       {missingDate ? (
         <span className="shrink-0 rounded-full bg-warn-soft px-1.5 text-[11px] text-warn">

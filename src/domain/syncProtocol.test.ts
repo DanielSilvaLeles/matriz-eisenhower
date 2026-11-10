@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { syncRequestSchema, syncResponseSchema } from './syncProtocol.ts'
+import { syncDataSchema, syncRequestSchema, syncResponseSchema } from './syncProtocol.ts'
+import { createTask } from './task.ts'
 
 describe('syncRequestSchema', () => {
   it('aceita um ping, so com token e action', () => {
@@ -62,5 +63,28 @@ describe('syncResponseSchema', () => {
   it('aceita uma resposta de status, sem `data` (extensao Anotações, docs secao 6.3)', () => {
     const result = syncResponseSchema.safeParse({ ok: true, revision: 5, checksum: 'abc123' })
     expect(result.success).toBe(true)
+  })
+})
+
+describe('syncDataSchema - favoritas', () => {
+  const base = createTask(
+    { id: '0b8d1d63-2a8f-4a43-9a43-5d6e0f0c1a11', eventId: '1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f', title: 'x', quadrant: 'q1', position: 1, device: 'pc' },
+    '2026-10-15T10:00:00.000Z',
+  ).task
+
+  it('preserva `favorite` vindo do servidor', () => {
+    const parsed = syncDataSchema.parse({
+      schemaVersion: 2,
+      tasks: [{ ...base, favorite: true }],
+      task_events: [],
+      people: [],
+      notes: [],
+    })
+    expect(parsed.tasks[0]?.favorite).toBe(true)
+  })
+
+  it('aceita dado gravado antes do campo existir (sem a chave `favorite`)', () => {
+    const parsed = syncDataSchema.parse({ schemaVersion: 2, tasks: [base], task_events: [], people: [], notes: [] })
+    expect(parsed.tasks[0]).not.toHaveProperty('favorite')
   })
 })

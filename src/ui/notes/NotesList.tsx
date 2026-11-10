@@ -1,4 +1,4 @@
-import { ArrowUpDown, Download, NotebookPen, X } from 'lucide-react'
+import { ArrowUpDown, Download, NotebookPen, Star, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNotes, useNoteTags } from '@/db/noteHooks.ts'
 import { groupNotesByDay } from '@/domain/noteGrouping.ts'
@@ -157,6 +157,27 @@ export function NotesList({ selectedId }: NotesListProps) {
               </button>
             )
           })}
+
+          <button
+            type="button"
+            onClick={() => {
+              setFilters((prev) => ({ ...prev, favoritesOnly: prev.favoritesOnly !== true }))
+              setVisibleCount(PAGE_SIZE)
+            }}
+            aria-pressed={filters.favoritesOnly === true}
+            className={cn(
+              'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]',
+              filters.favoritesOnly === true
+                ? 'border-focus bg-surface-muted font-medium text-text'
+                : 'border-border text-text-muted hover:bg-surface-muted',
+            )}
+          >
+            <Star
+              className={cn('size-3', filters.favoritesOnly === true && 'fill-current text-warn')}
+              aria-hidden="true"
+            />
+            Favoritas
+          </button>
 
           {allTags.length > 0 ? (
             <select

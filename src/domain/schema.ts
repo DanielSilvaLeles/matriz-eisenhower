@@ -76,6 +76,13 @@ export const taskSchema = z.object({
    * criada do jeito normal (captura, "Adicionar tarefa").
    */
   source_note_id: uuid.nullable(),
+  /**
+   * Favorita (marcada com estrela). OPCIONAL de propósito, ausente = não
+   * favorita - ver `src/domain/favorite.ts` para o porquê (sem migração do
+   * Dexie, sem mudar o checksum de dados antigos, sem exigir reimplantar o
+   * `Code.gs`).
+   */
+  favorite: z.boolean().optional(),
 })
 export type Task = z.infer<typeof taskSchema>
 
@@ -118,6 +125,8 @@ export const noteSchema = z.object({
   deleted: z.boolean(),
   deleted_at: timestamp.nullable(),
   device: deviceName,
+  /** Favorita - mesmo campo opcional de `taskSchema`, ver `src/domain/favorite.ts`. */
+  favorite: z.boolean().optional(),
 })
 export type Note = z.infer<typeof noteSchema>
 

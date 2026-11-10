@@ -151,3 +151,24 @@ test('clicar no titulo abre o detalhe, so o checkbox conclui', async ({ page }) 
     main.getByRole('checkbox', { name: 'Reabrir "Tarefa para abrir detalhe"' }),
   ).toBeChecked()
 })
+
+test('favoritar uma tarefa a leva para o topo do quadrante e sobrevive a recarga', async ({ page }) => {
+  const main = page.locator('main')
+  const campo = main.getByPlaceholder('Adicionar tarefa').first()
+  await campo.fill('Primeira')
+  await campo.press('Enter')
+  await campo.fill('Segunda')
+  await campo.press('Enter')
+
+  const fazer = main.locator('section[aria-label^="Fazer"]')
+  const titulos = fazer.locator('[data-task-id]')
+  await expect(titulos.first()).toContainText('Primeira')
+
+  await fazer.locator('[data-task-id]').filter({ hasText: 'Segunda' }).hover()
+  await main.getByRole('button', { name: 'Favoritar "Segunda"' }).click()
+  await expect(titulos.first()).toContainText('Segunda')
+
+  await page.reload()
+  await expect(titulos.first()).toContainText('Segunda')
+  await expect(main.getByRole('button', { name: 'Remover "Segunda" das favoritas' })).toBeVisible()
+})

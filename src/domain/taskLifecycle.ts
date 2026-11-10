@@ -6,6 +6,7 @@
  * dominio real, por isso ambos exportam para o mesmo tipo de consumidor
  * (src/db/tasksRepo.ts).
  */
+import { favoritesFirst } from './favorite.ts'
 import type { QuadrantId } from './quadrant.ts'
 import type { MutationParams, TaskMutationResult } from './task.ts'
 import type { Task, TaskEvent } from './schema.ts'
@@ -16,8 +17,19 @@ import type { Task, TaskEvent } from './schema.ts'
  * chamar atencao) - os demais seguem a posicao manual (arrastar/reordenar,
  * teclado, menu "Mover para"). Dentro da mesma data, ou quando nenhuma das
  * duas tem data, desempata pela posicao, para a ordem ficar estavel.
+ *
+ * Favoritas (estrela) sempre no topo do quadrante, em qualquer um dos
+ * quatro - dentro do grupo das favoritas e do grupo das demais, vale a
+ * mesma regra acima (posicao manual, ou data em Q2). Consequencia aceita:
+ * arrastar uma tarefa NAO favorita para o meio das favoritas nao "gruda"
+ * (ela volta para baixo delas no proximo render) - mesma natureza da
+ * limitacao ja aceita de reordenar dentro de Q2.
  */
 export function sortTasksForQuadrant(tasks: readonly Task[], quadrant: QuadrantId): Task[] {
+  return favoritesFirst(sortWithinGroup(tasks, quadrant))
+}
+
+function sortWithinGroup(tasks: readonly Task[], quadrant: QuadrantId): Task[] {
   if (quadrant !== 'q2') return tasks.toSorted((a, b) => a.position - b.position)
 
   return tasks.toSorted((a, b) => {
@@ -104,6 +116,8 @@ export interface TaskFieldEdits {
   readonly delegation_context?: string | null
   readonly expected_outcome?: string | null
   readonly tags?: readonly string[]
+  /** Estrela - ver `src/domain/favorite.ts`. */
+  readonly favorite?: boolean
 }
 
 /**

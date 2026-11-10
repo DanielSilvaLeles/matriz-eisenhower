@@ -142,3 +142,33 @@ test('menu inferior do celular: uma única barra, Anotar abre o editor focado', 
   await expect(nav).toBeHidden()
   await expect(page.getByRole('button', { name: 'Voltar' })).toBeVisible()
 })
+
+test('favoritar uma anotação: estrela no editor, filtro "Favoritas" na lista, sobrevive a recarga', async ({
+  page,
+}) => {
+  await page.getByRole('button', { name: 'Anotação' }).click()
+  await page.getByPlaceholder('Comece a digitar…').fill('Contrato importante')
+  await expect(page.getByText('Salvo')).toBeVisible()
+  // Volta para a lista antes de "Nova anotação": direto do editor de uma
+  // anotação recém-criada, o botão continua editando a mesma (rota fica em
+  // `#/anotacoes/nova`) - comportamento à parte, fora do escopo deste teste.
+  await page.getByRole('button', { name: 'Anotações', exact: true }).click()
+  await page.getByRole('button', { name: 'Nova anotação' }).click()
+  await page.getByPlaceholder('Comece a digitar…').fill('Lembrete comum')
+  await expect(page.getByText('Salvo')).toBeVisible()
+
+  await page.getByRole('button', { name: /Contrato importante/u }).click()
+  await expect(page.getByPlaceholder('Comece a digitar…')).toHaveValue('Contrato importante')
+  // A estrela do editor e a ultima no DOM (a lista vem antes, no painel da esquerda).
+  await page.getByRole('button', { name: 'Favoritar', exact: true }).last().click()
+  await expect(page.getByRole('button', { name: 'Remover das favoritas' }).first()).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+
+  await page.reload()
+  await page.getByRole('button', { name: 'Anotações', exact: true }).click()
+  await page.getByRole('button', { name: 'Favoritas', exact: true }).click()
+  await expect(page.getByRole('button', { name: /Contrato importante/u })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Lembrete comum/u })).toHaveCount(0)
+})

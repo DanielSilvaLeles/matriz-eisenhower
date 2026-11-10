@@ -3,10 +3,13 @@ import { X } from 'lucide-react'
 import { usePeopleNames, useTask, useTaskEvents } from '@/db/hooks.ts'
 import { quadrantMeta, type QuadrantId } from '@/domain/quadrant.ts'
 import type { TaskEvent } from '@/domain/schema.ts'
+import { isFavorite } from '@/domain/favorite.ts'
 import { moveTaskWithUndo } from '@/ui/actions/moveTaskWithUndo.ts'
+import { toggleTaskFavorite } from '@/ui/actions/toggleFavorite.ts'
 import { selectedTaskIdStore } from '@/ui/detail/store.ts'
 import { useSelectedTaskId } from '@/ui/detail/useSelectedTaskId.ts'
 import { cn } from '@/lib/utils.ts'
+import { FavoriteButton } from './FavoriteButton.tsx'
 import { MoveToMenu } from './MoveToMenu.tsx'
 import { TaskDetailFields } from './TaskDetailFields.tsx'
 
@@ -114,9 +117,18 @@ export function TaskDetailPanel() {
                   triggerLabel={`Mover "${task.title}"`}
                 />
                 <span className="text-xs text-text-muted">{destinationName(task.quadrant)}</span>
+                <FavoriteButton
+                  favorite={isFavorite(task)}
+                  onToggle={() => {
+                    toggleTaskFavorite(task)
+                  }}
+                  itemLabel={task.title}
+                  className="ml-auto size-8"
+                  iconClassName="size-4"
+                />
                 <Dialog.Close
                   aria-label="Fechar"
-                  className="ml-auto inline-flex size-8 shrink-0 items-center justify-center rounded text-text-subtle hover:bg-surface-muted hover:text-text"
+                  className="inline-flex size-8 shrink-0 items-center justify-center rounded text-text-subtle hover:bg-surface-muted hover:text-text"
                 >
                   <X className="size-4" aria-hidden="true" />
                 </Dialog.Close>

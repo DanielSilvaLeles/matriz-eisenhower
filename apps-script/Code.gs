@@ -76,6 +76,11 @@ function doPost(e) {
     const parsed = parseAction_(body)
     if (!parsed) return respond_({ ok: false, error: 'invalid' })
 
+    // Flag lida a CADA requisição (não numa constante no topo): trocar o
+    // armazenamento com usarApi()/voltarParaDrive() vale na hora, sem
+    // reimplantar o script nem republicar o front.
+    if (storageMode_() === 'api') return respond_(handleViaApi_(parsed))
+
     if (parsed.action === 'ping') return respond_(handlePing_(parsed))
     if (parsed.action === 'status') return respond_(handleStatus_(parsed))
     if (parsed.action === 'pull') return respond_(handlePull_(parsed))
@@ -236,6 +241,260 @@ function handlePush_(request) {
   } finally {
     if (gotLock) lock.releaseLock()
   }
+}
+
+// ───────────────────────── Armazenamento na VPS (proxy) ─────────────────────────
+//
+// PWA → este script → api.leles.tec.br/matriz → PostgreSQL (api/README.md).
+// A rede da empresa só libera script.google.com; o UrlFetchApp sai dos
+// servidores do Google, não da rede da empresa. O contrato com o front NÃO
+// muda: mesmas ações, mesmo envelope, mesmos códigos de erro - só a origem
+// dos dados troca, conforme a propriedade MATRIZ_STORAGE:
+//
+//   'drive' (ou ausente) → matriz.json no Drive, exatamente como antes
+//   'api'                → a API na VPS
+//
+// Propriedades do script (Configurações do projeto → Propriedades do script),
+// nunca no código: MATRIZ_API_URL (ex.: https://api.leles.tec.br/matriz) e
+// MATRIZ_API_KEY (o mesmo valor do .env da VPS). Passo a passo em
+// apps-script/README.md, seção "Armazenamento na VPS".
+
+const STORAGE_PROPERTY_KEY = 'MATRIZ_STORAGE'
+const API_URL_PROPERTY_KEY = 'MATRIZ_API_URL'
+const API_KEY_PROPERTY_KEY = 'MATRIZ_API_KEY'
+// Cópia única do JSON do Drive, feita na primeira virada para a API - nunca
+// sobrescrita depois, é o retrato de antes da migração.
+const PRE_API_COPY_NAME = DATA_FILE_NAME.replace(/\.json$/, '.antes-da-api.json')
+
+function storageMode_() {
+  return PropertiesService.getScriptProperties().getProperty(STORAGE_PROPERTY_KEY) === 'api' ? 'api' : 'drive'
+}
+
+function apiConfig_() {
+  const props = PropertiesService.getScriptProperties()
+  const url = (props.getProperty(API_URL_PROPERTY_KEY) || '').replace(/\/+$/, '')
+  const key = props.getProperty(API_KEY_PROPERTY_KEY) || ''
+  if (url.indexOf('https://') !== 0 || key.length < 32) return null
+  return { url: url, key: key }
+}
+
+/**
+ * Falha do proxy: o `error` é um dos códigos que o front já conhece, e
+ * `message` é a explicação legível (o Zod do front ignora a chave a mais,
+ * mas ela aparece na aba Rede do navegador e no log de execuções do Apps
+ * Script). Nunca leva a chave nem dado do usuário.
+ */
+function apiFailure_(error, message) {
+  Logger.log('[proxy VPS] ' + message)
+  return { ok: false, error: error, message: message }
+}
+
+/**
+ * Uma chamada à API. `muteHttpExceptions` para ler o status de qualquer
+ * resposta (em vez de exceção), `followRedirects: false` para um redirect
+ * (página de login, desafio do Cloudflare) não ser confundido com resposta
+ * da API. Devolve `{ ok: true, body }` ou uma falha já classificada.
+ */
+function callApi_(method, path, payload) {
+  const config = apiConfig_()
+  if (!config) {
+    return apiFailure_('server', 'MATRIZ_API_URL/MATRIZ_API_KEY ausentes ou inválidas nas propriedades do script')
+  }
+
+  const options = {
+    method: method,
+    headers: { 'X-Api-Key': config.key },
+    muteHttpExceptions: true,
+    followRedirects: false,
+  }
+  if (payload !== undefined) {
+    options.contentType = 'application/json'
+    options.payload = JSON.stringify(payload)
+  }
+
+  let response
+  try {
+    response = UrlFetchApp.fetch(config.url + path, options)
+  } catch (error) {
+    // DNS, timeout, conexão recusada, certificado inválido.
+    return apiFailure_('server', 'VPS inacessível (' + method.toUpperCase() + ' ' + path + '): ' + error)
+  }
+
+  const status = response.getResponseCode()
+  let body = null
+  try {
+    body = JSON.parse(response.getContentText())
+  } catch (error) {
+    body = null
+  }
+
+  if (status === 200 && body && body.ok === true) return { ok: true, body: body }
+  if (!body || typeof body !== 'object') {
+    return apiFailure_(
+      'server',
+      'VPS respondeu HTTP ' + status + ' sem JSON - provável bloqueio do Cloudflare (desafio de bot/WAF) ou erro do Nginx',
+    )
+  }
+  if (status === 401) return apiFailure_('server', 'a API recusou a chave - MATRIZ_API_KEY do script difere da VPS')
+  if (status === 409) return { ok: false, error: 'conflict' }
+  if (status === 400 || status === 413 || status === 422) {
+    return apiFailure_('invalid', 'a API recusou o pedido (HTTP ' + status + ')')
+  }
+  if (status === 503 && body.error === 'busy') return apiFailure_('busy', 'a API está ocupada com outra gravação')
+  if (status === 503) return apiFailure_('server', 'a API está no ar mas o banco não respondeu (HTTP 503)')
+  return apiFailure_('server', 'a API respondeu HTTP ' + status)
+}
+
+function isApiState_(body, withData) {
+  return (
+    body &&
+    typeof body.revision === 'number' &&
+    typeof body.checksum === 'string' &&
+    (!withData || isValidData_(body.data))
+  )
+}
+
+/** As mesmas quatro ações de doPost, com os dados vindo da API. */
+function handleViaApi_(request) {
+  if (!checkToken_(request.token)) return { ok: false, error: 'unauthorized' }
+
+  if (request.action === 'status') {
+    const status = callApi_('get', '/v1/state/status')
+    if (!status.ok) return status
+    if (!isApiState_(status.body, false)) return apiFailure_('server', 'resposta de status da API sem revision/checksum')
+    return { ok: true, revision: status.body.revision, checksum: status.body.checksum, capabilities: CAPABILITIES }
+  }
+
+  let result
+  if (request.action === 'push') {
+    // Mesma checagem barata do modo Drive antes de gastar uma chamada - a
+    // API valida de novo, com regras ainda mais estritas.
+    if (typeof request.baseRevision !== 'number' || !isValidData_(request.data)) {
+      return { ok: false, error: 'invalid' }
+    }
+    normalizeData_(request.data)
+    result = callApi_('put', '/v1/state', {
+      baseRevision: request.baseRevision,
+      data: request.data,
+      allowShrink: request.allowShrink,
+    })
+  } else {
+    // ping e pull
+    result = callApi_('get', '/v1/state')
+  }
+  if (!result.ok) return result
+  if (!isApiState_(result.body, true)) return apiFailure_('server', 'resposta da API com formato inesperado')
+
+  return {
+    ok: true,
+    revision: result.body.revision,
+    checksum: result.body.checksum,
+    data: normalizeData_(result.body.data),
+    capabilities: CAPABILITIES,
+  }
+}
+
+/**
+ * Rode no editor (Executar → testeVps) para validar a conexão com a VPS:
+ * /health (sem chave) e /v1/state/status (com a chave). Não muda nada.
+ */
+function testeVps() {
+  Logger.log('Armazenamento atual: ' + storageMode_())
+  const config = apiConfig_()
+  if (!config) {
+    Logger.log('✗ Configure MATRIZ_API_URL (https://...) e MATRIZ_API_KEY (32+ caracteres) nas propriedades do script.')
+    return false
+  }
+
+  let health
+  try {
+    health = UrlFetchApp.fetch(config.url + '/health', { muteHttpExceptions: true, followRedirects: false })
+  } catch (error) {
+    Logger.log('✗ /health: VPS inacessível - ' + error)
+    return false
+  }
+  const healthText = health.getContentText()
+  Logger.log('/health → HTTP ' + health.getResponseCode() + ': ' + healthText.slice(0, 200))
+  if (health.getResponseCode() !== 200) {
+    Logger.log('✗ /health falhou. HTML na resposta acima = provável Cloudflare/Nginx no caminho (ver api/DEPLOY.md).')
+    return false
+  }
+
+  const status = callApi_('get', '/v1/state/status')
+  if (!status.ok) {
+    Logger.log('✗ /v1/state/status: ' + (status.message || status.error))
+    return false
+  }
+  Logger.log('✓ VPS ok - API na revisão ' + status.body.revision + ', checksum ' + status.body.checksum)
+  Logger.log('  Drive na revisão ' + readState_().revision)
+  return true
+}
+
+/**
+ * VIRADA (rode no editor: Executar → usarApi). Confere a VPS, exige que a
+ * API já tenha recebido a importação (revisão da API >= revisão do Drive),
+ * guarda uma cópia única do JSON do Drive e só então troca a flag. O
+ * matriz.json do Drive fica intocado a partir daqui - nenhuma ação escreve
+ * nele enquanto a flag for 'api'.
+ */
+function usarApi() {
+  if (!testeVps()) throw new Error('VPS não respondeu como esperado - o armazenamento continua no Drive.')
+
+  const status = callApi_('get', '/v1/state/status')
+  const folder = getOrCreateFolder_()
+  const driveRevision = readStateFromFolder_(folder).revision
+  if (!status.ok || status.body.revision < driveRevision) {
+    throw new Error(
+      'A API está na revisão ' + (status.ok ? status.body.revision : '?') + ', atrás do Drive (' + driveRevision + '). ' +
+        'Rode a importação (api/README.md) antes da virada. O armazenamento continua no Drive.',
+    )
+  }
+
+  const current = getFileByName_(folder, DATA_FILE_NAME)
+  if (current && !getFileByName_(folder, PRE_API_COPY_NAME)) current.makeCopy(PRE_API_COPY_NAME, folder)
+
+  PropertiesService.getScriptProperties().setProperty(STORAGE_PROPERTY_KEY, 'api')
+  Logger.log('✓ Armazenamento agora é a API (revisão ' + status.body.revision + '). Cópia do Drive: ' + PRE_API_COPY_NAME)
+}
+
+/**
+ * ROLLBACK (Executar → voltarParaDrive). Copia o estado ATUAL da API para o
+ * matriz.json (com a revisão da API, para os aparelhos não verem conflito),
+ * depois troca a flag para 'drive'. Nada gravado durante o período na API
+ * se perde. Se a API estiver fora do ar, use voltarParaDriveSemCopiar().
+ */
+function voltarParaDrive() {
+  const state = callApi_('get', '/v1/state')
+  if (!state.ok || !isApiState_(state.body, true)) {
+    throw new Error('Não consegui ler a API para copiar ao Drive. Se ela estiver fora do ar, rode voltarParaDriveSemCopiar().')
+  }
+
+  const lock = LockService.getScriptLock()
+  if (!lock.tryLock(10000)) throw new Error('Outra execução segurando o lock - tente de novo em instantes.')
+  try {
+    const folder = getOrCreateFolder_()
+    rotateBackups_(folder)
+    writeState_(folder, {
+      revision: state.body.revision,
+      updatedAt: new Date().toISOString(),
+      data: normalizeData_(state.body.data),
+    })
+    PropertiesService.getScriptProperties().setProperty(STORAGE_PROPERTY_KEY, 'drive')
+  } finally {
+    lock.releaseLock()
+  }
+  Logger.log('✓ Armazenamento de volta ao Drive, com o estado da API (revisão ' + state.body.revision + ').')
+}
+
+/**
+ * ROLLBACK DE EMERGÊNCIA (API fora do ar): só troca a flag. O Drive volta
+ * com o estado de antes da virada; o que foi gravado na API desde então
+ * volta pelos próprios aparelhos na próxima sincronização (a mesclagem é uma
+ * união - cada aparelho reenvia o que tem localmente).
+ */
+function voltarParaDriveSemCopiar() {
+  PropertiesService.getScriptProperties().setProperty(STORAGE_PROPERTY_KEY, 'drive')
+  Logger.log('Armazenamento de volta ao Drive (sem copiar da API). Revisão do Drive: ' + readState_().revision)
 }
 
 // ───────────────────────── Token ─────────────────────────

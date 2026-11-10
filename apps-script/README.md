@@ -121,6 +121,35 @@ atual) e, a partir da segunda gravação, `matriz.bak1.json` e
 `matriz.bak2.json` (as duas gravações anteriores, por segurança). Nada
 disso precisa de manutenção manual — é tudo automático.
 
+## Armazenamento na VPS (opcional)
+
+O script pode guardar os dados numa API própria, com PostgreSQL, em vez do
+`matriz.json`. A ordem fica PWA → script → `api.leles.tec.br/matriz` → banco.
+O front não muda nada: mesmas ações, mesmas respostas, mesma URL do script.
+
+Quem decide é a propriedade `MATRIZ_STORAGE`:
+
+- **ausente ou `drive`:** o script lê e grava o Drive, exatamente como antes;
+- **`api`:** o script repassa cada chamada para a VPS, via `UrlFetchApp`.
+
+A troca vale na requisição seguinte, sem reimplantar. Funções para rodar no
+editor:
+
+| Função | O que faz |
+|---|---|
+| `testeVps()` | Chama `/health` e `/v1/state/status`. Mostra no log se a conexão e a chave funcionam. Não muda nada. |
+| `usarApi()` | Faz a virada. Recusa se a VPS não responder ou se a API estiver atrás do Drive. Guarda uma cópia única `*.antes-da-api.json`. |
+| `voltarParaDrive()` | Rollback. Copia o estado atual da API para o Drive e volta para `drive`. |
+| `voltarParaDriveSemCopiar()` | Rollback de emergência, para quando a API caiu. |
+
+Configuração, em Configurações do projeto → Propriedades do script:
+
+- `MATRIZ_API_URL`: `https://api.leles.tec.br/matriz`;
+- `MATRIZ_API_KEY`: o mesmo valor do `.env` da VPS.
+
+Nunca coloque esses valores no código. O roteiro completo (infra, importação,
+virada, rollback e checklist) está em [`api/DEPLOY.md`](../api/DEPLOY.md).
+
 ## Segurança, em resumo
 
 - O token fica só nas propriedades do script (`PropertiesService`), nunca

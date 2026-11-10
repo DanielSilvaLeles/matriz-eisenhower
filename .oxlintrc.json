@@ -63,6 +63,23 @@
       "files": ["e2e/**", "playwright.config.ts"],
       "env": { "node": true },
       "rules": { "react-hooks/rules-of-hooks": "off" }
+    },
+    {
+      // API da VPS (api/): servidor Node, nao navegador. console.log e o log
+      // do servidor de proposito - e o que `docker logs` mostra.
+      "files": ["api/**"],
+      "env": { "node": true, "browser": false },
+      "rules": { "no-console": "off" }
+    },
+    {
+      // node:test: describe/it devolvem Promise por design (o runner as
+      // acompanha sozinho) - await em cada um so poluiria os testes.
+      // Asserção de tipo em teste e sobre um valor que o proprio teste montou.
+      "files": ["api/test/**"],
+      "rules": {
+        "typescript/no-floating-promises": "off",
+        "typescript/no-unsafe-type-assertion": "off"
+      }
     }
   ]
 }

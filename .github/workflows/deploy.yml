@@ -32,6 +32,10 @@ jobs:
       # npm ci instala exatamente o que esta no package-lock.json.
       - run: npm ci
 
+      # api/ (API da VPS) tem o proprio package.json - o typecheck da raiz
+      # referencia api/tsconfig.json e precisa dos tipos do `pg` instalados.
+      - run: npm ci --prefix api
+
       - name: Lint
         run: npm run lint
 

@@ -12,7 +12,8 @@ comandos, convenções e decisões de arquitetura.
 | `npm run lint` | oxlint com regras que usam tipos, zero avisos tolerados |
 | `npm run typecheck` | `tsc --build --force` (ver nota abaixo — **não** `tsc --noEmit`) |
 | `npm test` | Vitest (domínio, banco, tema, contraste dos tokens) |
-| `npm run test:gas` | Harness Node (`apps-script/test/harness.mjs`) que simula os globais do Apps Script e roda `Code.gs` de verdade, sem precisar publicar nada |
+| `npm run test:gas` | Harness Node (`apps-script/test/harness.mjs` + `proxy.mjs`) que simula os globais do Apps Script e roda `Code.gs` de verdade, sem precisar publicar nada. `proxy.mjs` com `PROXY_E2E_API_URL`/`PROXY_E2E_API_KEY` chama a API real |
+| `npm test --prefix api` | Testes da API da VPS (`api/`); os de banco precisam de `TEST_DATABASE_URL` (Postgres 15 descartável, ver `api/README.md`) e são pulados sem ela |
 | `npm run build` | Build de produção em `dist/` |
 | `npm run preview` | Serve o `dist/` em `http://localhost:4173/matriz-eisenhower/` |
 | `npx playwright test` | 3 fluxos essenciais ponta a ponta — precisa de `npm run build` antes (roda contra o build de produção via `npm run preview`) |
@@ -22,8 +23,22 @@ comandos, convenções e decisões de arquitetura.
 
 **Decisão fechada (não reabrir):** a rede da empresa bloqueia a VPS pessoal e
 libera apenas GitHub Pages e Google Apps Script. Por isso o front é 100%
-estático, o banco local é a fonte da verdade imediata e o Drive (via Apps
-Script) é a cópia compartilhada entre aparelhos. Nada de VPS, túnel ou proxy.
+estático, o banco local é a fonte da verdade imediata e **o front só fala com
+o Apps Script** — nunca com a VPS, nem por túnel.
+
+**Revisão pedida pelo usuário (migração para PostgreSQL, direto em produção — o beta foi descartado):**
+o Apps Script pode guardar os dados no Drive (`matriz.json`, como sempre) ou
+repassar cada chamada para `api/` na VPS via `UrlFetchApp` (a chamada sai do
+Google, não da rede da empresa), conforme a propriedade `MATRIZ_STORAGE`. O
+contrato com o front não mudou. Roteiro em `api/DEPLOY.md`, desenho em
+`api/README.md`. Regras que não podem ser quebradas: o `updated_at` do
+domínio continua sendo o do cliente (o servidor tem `server_updated_at`
+próprio), e a API devolve cada valor **exatamente** como recebeu (`favorite`
+ausente ≠ `false`, chave desconhecida vai para `extra jsonb`), senão o
+checksum relido nunca bate e o sync para de confirmar sem erro aparente. A
+canonicalização do checksum agora tem **três** cópias (front, Code.gs,
+`api/src/checksum.ts`) — `api/test/checksum.test.ts` e o E2E de
+`apps-script/test/proxy.mjs` conferem a paridade.
 
 ```
 src/
@@ -83,6 +98,9 @@ e2e/        Playwright — add-and-move-task/sync-cycle/triage/notes.spec.ts (fl
             task-detail-autosave.spec.ts (regressões pós-lançamento)
 apps-script/  backend no Google Apps Script (Code.gs + README.md de publicação)
   test/       harness Node que simula os globais do Apps Script, sem publicar nada
+api/          API da VPS (Node 24 + pg, sem build) chamada só pelo Apps Script em modo proxy
+  migrations/ schema versionado do Postgres;  deploy/  compose, SQL, Nginx
+  scripts/import.ts  importa o matriz.json do Drive (idempotente, preserva a revisão)
 ```
 
 Regra de ouro: **toda regra de domínio é função pura em `src/domain`**. A UI e o

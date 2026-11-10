@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run lint && npm run typecheck && npm test && npm run test:gas && npm run build",
-    "test:gas": "node apps-script/test/harness.mjs"
+    "test:gas": "node apps-script/test/harness.mjs && node apps-script/test/proxy.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "6.3.1",

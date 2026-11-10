@@ -1,0 +1,27 @@
+# Trecho para ACRESCENTAR em /home/apps/docker-compose.yml, dentro de `services:`.
+# Não altera nenhum serviço existente. Conferido na VPS em 10/11/2026: o serviço
+# do Postgres se chama `postgres` e a rede do compose é `app-network`. O
+# repositório fica clonado em /home/apps/matriz-eisenhower.
+
+  matriz-api:
+    build: ./matriz-eisenhower/api
+    container_name: matriz-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${MATRIZ_DATABASE_URL}
+      MATRIZ_API_KEY: ${MATRIZ_API_KEY}
+      PORT: "5002"
+      BASE_PATH: /matriz
+      TZ: America/Sao_Paulo
+    # Só o Nginx da própria VPS alcança a porta - nunca exposta para fora.
+    ports:
+      - "127.0.0.1:5002:5002"
+    depends_on:
+      - postgres
+    networks:
+      - app-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

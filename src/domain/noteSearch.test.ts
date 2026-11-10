@@ -3,6 +3,7 @@ import {
   filterNotes,
   hasActiveFilters,
   highlightSegments,
+  NO_FILTERS,
   noteMatchesQuery,
   normalizeForSearch,
 } from './noteSearch.ts'
@@ -71,6 +72,16 @@ describe('filterNotes', () => {
     expect(result.map((n) => n.id)).toEqual(['b'])
   })
 
+  it('filtra so as favoritas', () => {
+    const comFavorita = [...notes, note({ id: 'c', favorite: true })]
+    const result = filterNotes(
+      comFavorita,
+      { query: '', tag: null, period: { kind: 'all' }, favoritesOnly: true },
+      TODAY,
+    )
+    expect(result.map((n) => n.id)).toEqual(['c'])
+  })
+
   it('combina busca de texto com filtro de tag (E, nao OU)', () => {
     const result = filterNotes(
       notes,
@@ -84,6 +95,11 @@ describe('filterNotes', () => {
 describe('hasActiveFilters', () => {
   it('nenhum filtro ativo com os padroes', () => {
     expect(hasActiveFilters({ query: '', tag: null, period: { kind: 'all' } })).toBe(false)
+  })
+
+  it('"so favoritas" conta como filtro ativo', () => {
+    expect(hasActiveFilters({ ...NO_FILTERS, favoritesOnly: true })).toBe(true)
+    expect(hasActiveFilters(NO_FILTERS)).toBe(false)
   })
 
   it('qualquer filtro preenchido conta como ativo', () => {

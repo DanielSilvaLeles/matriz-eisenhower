@@ -4,6 +4,7 @@
  * encontrado destacado"; filtros por tag e por período, combináveis.
  */
 import { addDays } from './dateStatus.ts'
+import { isFavorite } from './favorite.ts'
 import { localDateOf } from './time.ts'
 import type { Note } from './schema.ts'
 
@@ -42,12 +43,24 @@ export interface NoteFilters {
   readonly query: string
   readonly tag: string | null
   readonly period: NotePeriodFilter
+  /** Só as marcadas com estrela - opcional para os filtros já escritos continuarem valendo. */
+  readonly favoritesOnly?: boolean
 }
 
-export const NO_FILTERS: NoteFilters = { query: '', tag: null, period: { kind: 'all' } }
+export const NO_FILTERS: NoteFilters = {
+  query: '',
+  tag: null,
+  period: { kind: 'all' },
+  favoritesOnly: false,
+}
 
 export function hasActiveFilters(filters: NoteFilters): boolean {
-  return filters.query.trim() !== '' || filters.tag !== null || filters.period.kind !== 'all'
+  return (
+    filters.query.trim() !== '' ||
+    filters.tag !== null ||
+    filters.period.kind !== 'all' ||
+    filters.favoritesOnly === true
+  )
 }
 
 /** Filtros combináveis por "e" (seção 4: "Filtros combináveis"). */
@@ -57,6 +70,7 @@ export function filterNotes(
   today: string,
 ): readonly Note[] {
   return notes.filter((note) => {
+    if (filters.favoritesOnly === true && !isFavorite(note)) return false
     if (filters.tag !== null && !note.tags.includes(filters.tag)) return false
     if (!matchesPeriod(note, filters.period, today)) return false
     return noteMatchesQuery(note, filters.query)

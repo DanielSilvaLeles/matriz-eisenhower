@@ -327,6 +327,31 @@ check('le um matriz.json antigo (sem a chave notes) sem perder as tarefas existe
   assert.deepEqual(res.data.notes, [], '`notes` ausente e normalizado para [], nunca rejeita o arquivo inteiro')
 })
 
+// 10. Favoritas (estrela): o campo `favorite` nasceu DEPOIS deste script
+// estar publicado, e o Code.gs nao foi alterado por causa dele - este
+// cenario prova que o script como esta guarda e devolve `favorite` em
+// tarefa e anotacao (sem rejeitar chave desconhecida), e o check seguinte
+// (checksum independente em Node) confirma a paridade com o campo presente.
+check('guarda e devolve `favorite` de tarefa e anotacao sem precisar alterar o script', () => {
+  const before = doPost({ action: 'pull', token })
+  const res = doPost({
+    action: 'push',
+    token,
+    baseRevision: before.revision,
+    data: {
+      schemaVersion: 2,
+      tasks: [{ ...sampleTask, favorite: true }],
+      task_events: [],
+      people: [],
+      notes: [{ ...sampleNote, favorite: true }],
+    },
+  })
+  assert.equal(res.ok, true, JSON.stringify(res))
+  const after = doPost({ action: 'pull', token })
+  assert.equal(after.data.tasks[0].favorite, true)
+  assert.equal(after.data.notes[0].favorite, true)
+})
+
 check('checksum do pull bate com o calculo independente em Node', () => {
   const res = doPost({ action: 'pull', token })
   function sortKeysDeep(v) {

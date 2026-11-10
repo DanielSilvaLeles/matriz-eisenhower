@@ -113,6 +113,26 @@ describe('computeChecksum', () => {
     expect(mudado).not.toBe(original)
   })
 
+  it('dado sem nenhuma favorita tem o mesmo hash de antes do campo `favorite` existir', async () => {
+    // FIXTURE nao tem a chave `favorite` em lugar nenhum - e o FIXTURE_HASH
+    // e o mesmo de antes deste campo existir. Uma tarefa com
+    // `favorite: undefined` (chave presente, valor ausente) tambem nao muda
+    // nada: a canonicalizacao trata undefined como ausente.
+    const comUndefined: ChecksumContents = {
+      ...FIXTURE,
+      tasks: FIXTURE.tasks.map((task) => ({ ...task, favorite: undefined })),
+    }
+    await expect(computeChecksum(comUndefined)).resolves.toBe(FIXTURE_HASH)
+  })
+
+  it('marcar uma favorita muda o hash (para a sincronizacao perceber)', async () => {
+    const favoritada: ChecksumContents = {
+      ...FIXTURE,
+      tasks: [{ ...FIXTURE.tasks[0]!, favorite: true }],
+    }
+    await expect(computeChecksum(favoritada)).resolves.not.toBe(FIXTURE_HASH)
+  })
+
   it('includeNotes:false (compatibilidade com script antigo) reproduz o hash de antes da extensão "Anotações"', async () => {
     await expect(computeChecksum(FIXTURE, false)).resolves.toBe(LEGACY_FIXTURE_HASH)
   })

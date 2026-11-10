@@ -1084,6 +1084,32 @@ automatizado existir, e o campo nem perdeu o foco/posição do cursor ao
 salvar (o autosave é silencioso - escreve no Dexie, não mexe no estado
 local `useState` que já está exibindo o que a pessoa digitou).
 
+### Favoritas (estrela) em tarefas e anotações
+
+Pedido do usuário depois da extensão "Anotações". `favorite` é um campo
+**opcional** em `taskSchema` e `noteSchema` (ausente = não favorita) - de
+propósito, não um `boolean` obrigatório: sem migração do Dexie, o checksum
+de dados antigos não muda (`undefined` é tratado como ausente na
+canonicalização) e **o `Code.gs` publicado não precisa ser reimplantado** -
+ele ignora chave a mais na validação e canonicaliza qualquer chave. Cenário
+no harness (`apps-script/test/harness.mjs`) prova que o script atual guarda e
+devolve `favorite` com checksum em paridade. Racional completo em
+`src/domain/favorite.ts`.
+
+- Tarefas: estrela na linha (`TaskRow`, sempre visível quando marcada; desmarcada
+  só em hover/foco no desktop, e no celular nem é renderizada - lá marca-se pelo
+  painel de detalhe) e no cabeçalho do painel de detalhe. **Favoritas sempre no
+  topo do quadrante** (`sortTasksForQuadrant` + `favoritesFirst`), mantendo a
+  ordem manual/por data dentro de cada grupo. Arrastar uma não favorita para o
+  meio das favoritas não "gruda" - mesma natureza da limitação de Q2.
+- Anotações: estrela na linha da lista (irmã do botão da linha - botão dentro de
+  botão é HTML inválido) e no editor; filtro "Favoritas" na lista
+  (`NoteFilters.favoritesOnly`). Rótulo acessível genérico ("Favoritar") nessas
+  duas, porque o título no rótulo colidia com a busca por nome da linha.
+- Favoritar muda `updated_at` e marca pendente (é como a mudança sincroniza);
+  não gera `task_events` nem toast de desfazer (reversível pelo próprio botão).
+  Na lista de anotações, aparece "editada HH:MM" depois de favoritar.
+
 ## Segurança (o repositório é público)
 
 - **Nenhum segredo no código, nos testes ou no histórico do git.**

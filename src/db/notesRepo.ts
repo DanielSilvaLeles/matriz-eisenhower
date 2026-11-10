@@ -8,7 +8,14 @@
  * (`docs/prompt-anotacoes.md` seção 6.3), sem precisar de uma segunda
  * lista: ids são UUIDs, não colidem entre tarefa e anotação.
  */
-import { createNote, deleteNote, editNote, restoreNote, type NoteFieldEdits } from '@/domain/note.ts'
+import {
+  createNote,
+  deleteNote,
+  editNote,
+  restoreNote,
+  setNoteFavorite,
+  type NoteFieldEdits,
+} from '@/domain/note.ts'
 import type { Note } from '@/domain/schema.ts'
 import { notifyLocalWrite } from './changeSignal.ts'
 import { getDeviceName } from './device.ts'
@@ -99,6 +106,23 @@ export function restoreNoteById(
   return db.transaction('rw', db.notes, db.meta, async () => {
     const existing = await getNoteOrThrow(db, noteId)
     const updated = restoreNote(existing, device, nowISO())
+    await db.notes.put(updated)
+    await markPendingInTx(db, updated.id)
+    return updated
+  })
+}
+
+/** Estrela da anotação (ver `src/domain/favorite.ts`). */
+export function setNoteFavoriteById(
+  db: MatrizDB,
+  noteId: string,
+  favorite: boolean,
+  device: string = getDeviceName(),
+): Promise<Note> {
+  notifyLocalWrite()
+  return db.transaction('rw', db.notes, db.meta, async () => {
+    const existing = await getNoteOrThrow(db, noteId)
+    const updated = setNoteFavorite(existing, favorite, device, nowISO())
     await db.notes.put(updated)
     await markPendingInTx(db, updated.id)
     return updated

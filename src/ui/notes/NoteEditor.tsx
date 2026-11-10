@@ -1,8 +1,13 @@
 import { ArrowLeft, Trash2 } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { useState } from 'react'
 import { useNote } from '@/db/noteHooks.ts'
 import { deleteNoteById, restoreNoteById } from '@/db/notesRepo.ts'
 import { getDB } from '@/db/schema.ts'
+import { isFavorite } from '@/domain/favorite.ts'
+import type { Note } from '@/domain/schema.ts'
+import { toggleNoteFavorite } from '@/ui/actions/toggleFavorite.ts'
+import { FavoriteButton } from '@/ui/components/FavoriteButton.tsx'
 import { navigate } from '@/ui/router/store.ts'
 import { pushUndo } from '@/ui/undo/store.ts'
 import { NoteEditorForm } from './NoteEditorForm.tsx'
@@ -19,7 +24,20 @@ export interface NoteEditorProps {
   showTopBar?: boolean
 }
 
-function EditorTopBar({ onDelete }: { onDelete: (() => void) | null }) {
+function NoteFavoriteButton({ note }: { note: Note }) {
+  return (
+    <FavoriteButton
+      favorite={isFavorite(note)}
+      onToggle={() => {
+        toggleNoteFavorite(note)
+      }}
+      className="size-8 rounded-md"
+      iconClassName="size-4"
+    />
+  )
+}
+
+function EditorTopBar({ onDelete, actions }: { onDelete: (() => void) | null; actions?: ReactNode }) {
   return (
     <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
       <button
@@ -32,17 +50,20 @@ function EditorTopBar({ onDelete }: { onDelete: (() => void) | null }) {
         <ArrowLeft className="size-4" aria-hidden="true" />
         Voltar
       </button>
-      {onDelete ? (
-        <button
-          type="button"
-          onClick={onDelete}
-          aria-label="Excluir anotação"
-          title="Excluir"
-          className="inline-flex size-8 items-center justify-center rounded-md text-text-subtle hover:bg-surface-muted hover:text-q4-ink"
-        >
-          <Trash2 className="size-4" aria-hidden="true" />
-        </button>
-      ) : null}
+      <div className="flex items-center gap-1">
+        {actions}
+        {onDelete ? (
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label="Excluir anotação"
+            title="Excluir"
+            className="inline-flex size-8 items-center justify-center rounded-md text-text-subtle hover:bg-surface-muted hover:text-q4-ink"
+          >
+            <Trash2 className="size-4" aria-hidden="true" />
+          </button>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -71,7 +92,12 @@ export function NoteEditor({ noteId, showTopBar = false }: NoteEditorProps) {
     )
   }
 
-  if (liveNote === undefined) {
+  // `liveNote.id !== noteId`: defesa ao trocar de uma anotacao para outra
+  // no desktop - se `useLiveQuery` ainda devolver o resultado da consulta
+  // ANTERIOR enquanto a nova resolve, a estrela (e o excluir) agiriam por
+  // um instante sobre a anotacao que acabou de sair. Trata como
+  // "carregando" ate o id bater.
+  if (liveNote === undefined || liveNote.id !== noteId) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center text-[13px] text-text-subtle">
         Carregando…
@@ -101,7 +127,14 @@ export function NoteEditor({ noteId, showTopBar = false }: NoteEditorProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {showTopBar ? <EditorTopBar onDelete={handleDelete} /> : null}
+      {showTopBar ? (
+        <EditorTopBar onDelete={handleDelete} actions={<NoteFavoriteButton note={note} />} />
+      ) : (
+        // Desktop (2o painel): sem barra de "Voltar", so a estrela no canto.
+        <div className="flex shrink-0 justify-end px-3 pt-2">
+          <NoteFavoriteButton note={note} />
+        </div>
+      )}
       <NoteEditorForm key={note.id} note={note} />
     </div>
   )

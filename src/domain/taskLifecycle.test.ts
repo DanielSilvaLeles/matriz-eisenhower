@@ -184,4 +184,37 @@ describe('sortTasksForQuadrant', () => {
       'segunda',
     ])
   })
+
+  it('favoritas ficam no topo do quadrante, mantendo a posicao manual dentro de cada grupo', () => {
+    const a = taskWith('a', 100, null)
+    const b = { ...taskWith('b', 300, null), favorite: true }
+    const c = { ...taskWith('c', 200, null), favorite: true }
+
+    expect(sortTasksForQuadrant([a, b, c], 'q1').map((t) => t.id)).toEqual(['c', 'b', 'a'])
+  })
+
+  it('em q2, favoritas no topo e, dentro de cada grupo, a ordem por data continua valendo', () => {
+    const cedo = taskWith('cedo', 100, '2026-10-10')
+    const tardeFav = { ...taskWith('tarde-fav', 200, '2026-10-30'), favorite: true }
+    const semDataFav = { ...taskWith('sem-data-fav', 300, null), favorite: true }
+
+    expect(sortTasksForQuadrant([cedo, semDataFav, tardeFav], 'q2').map((t) => t.id)).toEqual([
+      'tarde-fav',
+      'sem-data-fav',
+      'cedo',
+    ])
+  })
+})
+
+describe('editTaskFields - favorita', () => {
+  it('marca e desmarca a estrela, atualizando updated_at (para sincronizar)', () => {
+    const task = createTask(newTaskInput(), NOW).task
+    const marcada = editTaskFields(task, { favorite: true }, 'celular', LATER)
+    expect(marcada.favorite).toBe(true)
+    expect(marcada.updated_at).toBe(LATER)
+    expect(marcada.device).toBe('celular')
+    expect(marcada.title).toBe(task.title)
+
+    expect(editTaskFields(marcada, { favorite: false }, 'celular', LATER).favorite).toBe(false)
+  })
 })

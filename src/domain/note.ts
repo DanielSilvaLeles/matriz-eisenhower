@@ -72,6 +72,15 @@ export function restoreNote(note: Note, device: string, now: string): Note {
   return { ...note, deleted: false, deleted_at: null, updated_at: now, device }
 }
 
+/**
+ * Marca/desmarca a estrela (ver `src/domain/favorite.ts`). Muda
+ * `updated_at` para a mudança sincronizar - por isso a lista mostra
+ * "editada" depois de favoritar, o que é honesto: a anotação mudou.
+ */
+export function setNoteFavorite(note: Note, favorite: boolean, device: string, now: string): Note {
+  return { ...note, favorite, updated_at: now, device }
+}
+
 const LIST_MARKER_PATTERN = /^(\s*)((?:- \[ \] )|(?:\[ \] )|(?:- ))/u
 
 /**

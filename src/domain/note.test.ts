@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { continuationPrefixFor, createNote, deleteNote, editNote, restoreNote } from './note.ts'
+import {
+  continuationPrefixFor,
+  createNote,
+  deleteNote,
+  editNote,
+  restoreNote,
+  setNoteFavorite,
+} from './note.ts'
 import type { Note } from './schema.ts'
 
 const NOW = '2026-10-15T10:00:00.000Z'
@@ -123,5 +130,14 @@ describe('continuationPrefixFor', () => {
   it('linha so com o marcador (vazia) encerra a lista', () => {
     expect(continuationPrefixFor('- ')).toBeNull()
     expect(continuationPrefixFor('[ ] ')).toBeNull()
+  })
+})
+
+describe('setNoteFavorite', () => {
+  it('marca a estrela sem tocar no texto nem na data de inclusao', () => {
+    const note = baseNote()
+    const marcada = setNoteFavorite(note, true, 'celular', LATER)
+    expect(marcada).toMatchObject({ favorite: true, body: note.body, created_at: NOW, updated_at: LATER, device: 'celular' })
+    expect(setNoteFavorite(marcada, false, 'pc', LATER).favorite).toBe(false)
   })
 })
